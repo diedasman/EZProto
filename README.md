@@ -36,7 +36,7 @@ The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 ### 1. Clone the repository
 
 ```powershell
-git clone <your-repo-url>
+git clone https://github.com/diedasman/EZProto.git
 cd EZProto
 ```
 

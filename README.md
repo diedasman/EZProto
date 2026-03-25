@@ -115,6 +115,27 @@ You do not need to run EZProto from the project root anymore. By default it stor
 
 If you already used an older repo-root layout, EZProto will migrate that data to the new location the first time it starts.
 
+## Updating EZProto
+
+If you installed EZProto from the repository as documented above, you can update it with:
+
+```powershell
+ezproto update
+```
+
+The update command:
+
+- verifies that EZProto is backed by a git checkout
+- stops if that checkout has local uncommitted changes
+- runs `git pull --ff-only`
+- refreshes the editable install with your current Python environment
+
+If EZProto was not installed from a git checkout, re-clone the repository and reinstall with:
+
+```powershell
+python -m pip install -e .
+```
+
 ## First-Time Setup In The App
 
 When the app opens:

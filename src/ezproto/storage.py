@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
+import shutil
+import sys
 from typing import Any
 
 USERS_DIRECTORY_NAME = "users"
 APP_STATE_FILE_NAME = "app_state.json"
+APP_DATA_DIRECTORY_NAME = "EZProto"
+APP_DATA_ENV_VAR_NAME = "EZPROTO_DATA_DIR"
 MAX_LOG_ENTRIES = 100
 DEFAULT_THEME_NAME = "textual-dark"
 
@@ -130,17 +135,51 @@ class AppState:
         )
 
 
-def users_directory(base_path: Path | str = ".") -> Path:
-    directory = Path(base_path).expanduser() / USERS_DIRECTORY_NAME
+def data_directory(base_path: Path | str | None = None) -> Path:
+    if base_path is not None:
+        directory = Path(base_path).expanduser()
+    else:
+        directory = default_data_directory()
+        if not (os.getenv(APP_DATA_ENV_VAR_NAME) or "").strip():
+            _migrate_legacy_storage(directory)
+
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
-def app_state_path(base_path: Path | str = ".") -> Path:
-    return Path(base_path).expanduser() / APP_STATE_FILE_NAME
+def default_data_directory() -> Path:
+    override = (os.getenv(APP_DATA_ENV_VAR_NAME) or "").strip()
+    if override:
+        return Path(override).expanduser()
+
+    home = Path.home()
+    if sys.platform.startswith("win"):
+        root = (os.getenv("APPDATA") or os.getenv("LOCALAPPDATA") or "").strip()
+        if root:
+            return Path(root).expanduser() / APP_DATA_DIRECTORY_NAME
+        return home / "AppData" / "Roaming" / APP_DATA_DIRECTORY_NAME
+
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / APP_DATA_DIRECTORY_NAME
+
+    xdg_data_home = (os.getenv("XDG_DATA_HOME") or "").strip()
+    if xdg_data_home:
+        return Path(xdg_data_home).expanduser() / APP_DATA_DIRECTORY_NAME
+
+    return home / ".local" / "share" / APP_DATA_DIRECTORY_NAME
 
 
-def list_user_profiles(base_path: Path | str = ".") -> list[UserProfile]:
+def users_directory(base_path: Path | str | None = None) -> Path:
+    directory = data_directory(base_path) / USERS_DIRECTORY_NAME
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def app_state_path(base_path: Path | str | None = None) -> Path:
+    return data_directory(base_path) / APP_STATE_FILE_NAME
+
+
+def list_user_profiles(base_path: Path | str | None = None) -> list[UserProfile]:
     profiles: list[UserProfile] = []
     for path in users_directory(base_path).glob("*.json"):
         try:
@@ -151,7 +190,10 @@ def list_user_profiles(base_path: Path | str = ".") -> list[UserProfile]:
     return sorted(profiles, key=lambda profile: profile.name.lower())
 
 
-def load_user_profile(user_slug: str, base_path: Path | str = ".") -> UserProfile | None:
+def load_user_profile(
+    user_slug: str,
+    base_path: Path | str | None = None,
+) -> UserProfile | None:
     path = users_directory(base_path) / f"{user_slug}.json"
     if not path.exists():
         return None
@@ -167,13 +209,13 @@ def load_user_profile(user_slug: str, base_path: Path | str = ".") -> UserProfil
         return None
 
 
-def save_user_profile(profile: UserProfile, base_path: Path | str = ".") -> Path:
+def save_user_profile(profile: UserProfile, base_path: Path | str | None = None) -> Path:
     path = users_directory(base_path) / f"{profile.slug}.json"
     path.write_text(json.dumps(profile.to_dict(), indent=2), encoding="utf-8")
     return path.resolve()
 
 
-def load_app_state(base_path: Path | str = ".") -> AppState:
+def load_app_state(base_path: Path | str | None = None) -> AppState:
     path = app_state_path(base_path)
     if not path.exists():
         return AppState()
@@ -189,7 +231,7 @@ def load_app_state(base_path: Path | str = ".") -> AppState:
     return AppState.from_dict(data)
 
 
-def save_app_state(state: AppState, base_path: Path | str = ".") -> Path:
+def save_app_state(state: AppState, base_path: Path | str | None = None) -> Path:
     path = app_state_path(base_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state.to_dict(), indent=2), encoding="utf-8")
@@ -197,7 +239,7 @@ def save_app_state(state: AppState, base_path: Path | str = ".") -> Path:
 
 
 def update_app_state(
-    base_path: Path | str = ".",
+    base_path: Path | str | None = None,
     *,
     last_user_slug: str | None = None,
     message: str | None = None,
@@ -228,6 +270,74 @@ def update_app_state(
 
     save_app_state(state, base_path)
     return state
+
+
+def _migrate_legacy_storage(target_directory: Path) -> None:
+    if _storage_has_data(target_directory):
+        return
+
+    for legacy_directory in _legacy_storage_candidates():
+        if legacy_directory == target_directory:
+            continue
+        if not _storage_has_data(legacy_directory):
+            continue
+        _copy_legacy_storage(legacy_directory, target_directory)
+        return
+
+
+def _legacy_storage_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    for candidate in (Path.cwd(), Path(__file__).resolve().parents[2]):
+        candidate = candidate.expanduser()
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _storage_has_data(base_path: Path) -> bool:
+    users_path = base_path / USERS_DIRECTORY_NAME
+    if users_path.exists() and any(users_path.glob("*.json")):
+        return True
+    return _app_state_has_content(base_path / APP_STATE_FILE_NAME)
+
+
+def _app_state_has_content(path: Path) -> bool:
+    if not path.exists():
+        return False
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+
+    if not isinstance(data, dict):
+        return True
+
+    return any(
+        (
+            str(data.get("last_user_slug", "")).strip(),
+            str(data.get("last_board_name", "")).strip(),
+            bool(_clean_details(data.get("last_board_details", {}))),
+            bool(data.get("events", [])),
+        )
+    )
+
+
+def _copy_legacy_storage(source_directory: Path, target_directory: Path) -> None:
+    target_directory.mkdir(parents=True, exist_ok=True)
+
+    source_app_state = source_directory / APP_STATE_FILE_NAME
+    if source_app_state.exists():
+        shutil.copy2(source_app_state, target_directory / APP_STATE_FILE_NAME)
+
+    source_users = source_directory / USERS_DIRECTORY_NAME
+    if not source_users.exists():
+        return
+
+    target_users = target_directory / USERS_DIRECTORY_NAME
+    target_users.mkdir(parents=True, exist_ok=True)
+    for user_file in source_users.glob("*.json"):
+        shutil.copy2(user_file, target_users / user_file.name)
 
 
 def slugify(value: str) -> str:

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import (
+from textual.app import App, ComposeResult # type: ignore
+from textual.containers import Container, Horizontal, Vertical # type: ignore
+from textual.widgets import ( # type: ignore
     Button,
     Checkbox,
     Footer,
@@ -27,6 +27,7 @@ from ezproto.storage import (
     DEFAULT_THEME_NAME,
     UserProfile,
     current_timestamp,
+    data_directory,
     list_user_profiles,
     load_app_state,
     load_user_profile,
@@ -77,34 +78,37 @@ class ProtoboardApp(App[None]):
                 with Container(id="protoboard_layout"):
                     with Vertical(id="parameters_panel", classes="panel"):
                         with Container(id="form"):
+                            
                             yield Label("Board name", classes="field_label")
-                            yield self._make_input("board_name")
+                            yield Input(placeholder="Protoboard", id="board_name")
 
                             yield Label("Columns", classes="field_label")
-                            yield self._make_input("columns")
+                            yield Input(id="columns", placeholder="Number of columns")
 
                             yield Label("Rows", classes="field_label")
-                            yield self._make_input("rows")
+                            yield Input(id="rows", placeholder="Number of rows")
 
                             yield Label("Pitch (mm)", classes="field_label")
+                            
                             with Horizontal(id="pitch_controls"):
-                                yield self._make_input("pitch", classes="pitch_input")
+                                yield Input(id="pitch", placeholder="Custom")
+
                                 yield Button("1 mm", id="pitch_1_00", classes="pitch_preset")
                                 yield Button("2 mm", id="pitch_2_00", classes="pitch_preset")
                                 yield Button("2.54 mm", id="pitch_2_54", classes="pitch_preset")
                                 yield Button("5.08 mm", id="pitch_5_08", classes="pitch_preset")
 
                             yield Label("PTH drill (mm)", classes="field_label")
-                            yield self._make_input("pth_drill")
+                            yield Input(id="pth_drill", placeholder="PTH drill diameter (mm)")
 
                             yield Label("Pad diameter (mm)", classes="field_label")
-                            yield self._make_input("pad_diameter")
+                            yield Input(id="pad_diameter", placeholder="Pad diameter (mm)")
 
                             yield Label("Mount hole (mm)", classes="field_label")
-                            yield self._make_input("mount_hole")
+                            yield Input(id="mount_hole", placeholder="Mount hole diameter (mm)")
 
                             yield Label("Edge margin (mm)", classes="field_label")
-                            yield self._make_input("edge_margin")
+                            yield Input(id="edge_margin", placeholder="Distance from board edge to pad edge (mm)")
 
                             yield Label("Rounded corners", classes="field_label")
                             yield Select[str](
@@ -124,16 +128,15 @@ class ProtoboardApp(App[None]):
 
                         with Horizontal(id="buttons", classes="button_row"):
                             yield Button("Generate PCB", variant="primary", id="generate")
-                            yield Button("Quit", id="quit")
 
                     with Vertical(id="summary_panel", classes="panel"):
                         yield Static(id="summary")
-                        yield Static(
-                            "Tip: set mounting hole diameter to 0 to disable corner holes.",
-                            id="hint",
-                        )
-                        yield Static(id="proto_status", classes="status_box")
+                        # yield Static(
+                        #     "Tip: set mounting hole diameter to 0 to disable corner holes.",
+                        #     id="hint",
+                        # )
                         yield Static(id="board_preview")
+                        yield Static(id="proto_status", classes="status_box")
 
             with TabPane("ENCLOSURE", id="enclosure"):
                 pass
@@ -157,7 +160,7 @@ class ProtoboardApp(App[None]):
                             yield Static("No active user selected", id="active_user_name")
                             with Container(id="active_user_form", classes="settings_form"):
                                 yield Label("Default output directory", classes="field_label")
-                                yield self._make_input("default_output_directory")
+                                yield Input(id="default_output_directory")
                                 yield Label("Theme", classes="field_label")
                                 yield Select[str](
                                     self._theme_options(),
@@ -171,9 +174,9 @@ class ProtoboardApp(App[None]):
                     with Vertical(id="create_user_panel", classes="panel settings_panel hidden"):
                         with Container(id="create_user_form", classes="settings_form"):
                             yield Label("User name", classes="field_label")
-                            yield self._make_input("new_user_name")
+                            yield Input(id="new_user_name")
                             yield Label("Default output directory", classes="field_label")
-                            yield self._make_input("new_output_directory")
+                            yield Input(id="new_output_directory")
                         with Horizontal(classes="button_row"):
                             yield Button("Create User", variant="primary", id="create_user")
                             yield Button("Cancel", id="cancel_create_user")
@@ -188,6 +191,8 @@ class ProtoboardApp(App[None]):
         self.query_one("#active_user_panel", Vertical).border_title = "Active User"
         self.query_one("#create_user_panel", Vertical).border_title = "Create User"
         self.query_one("#board_preview", Static).border_title = "Board Preview"
+        self.query_one("#summary", Static).border_title = "Board Details"
+        self.query_one("#proto_status", Static).border_title = "Status"
         self._set_active_user_controls_enabled(False)
         self._refresh_user_list()
         self._restore_last_user()
@@ -199,9 +204,6 @@ class ProtoboardApp(App[None]):
             return
         if event.button.id == "generate":
             self.action_generate()
-            return
-        if event.button.id == "quit":
-            self.exit()
             return
         if event.button.id == "show_create_user":
             self._toggle_create_user_form(True)
@@ -225,7 +227,6 @@ class ProtoboardApp(App[None]):
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "generate_gerbers":
-            # TODO: toggle gerber checkbox state
             self._refresh_preview()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -361,7 +362,6 @@ class ProtoboardApp(App[None]):
         except ValueError as error:
             message = f"Waiting for valid parameters.\n\n{error}"
             summary.update(message)
-            preview.update(message)
             return
 
         mounting_holes = (
@@ -447,7 +447,14 @@ class ProtoboardApp(App[None]):
                     output_directory.value = ""
                 if theme_select.value != self._default_theme_name():
                     theme_select.value = self._default_theme_name()
-                user_summary.update("No saved user selected.")
+                user_summary.update(
+                    "\n".join(
+                        [
+                            "No saved user selected.",
+                            f"Local data: {data_directory()}",
+                        ]
+                    )
+                )
                 self._set_active_user_controls_enabled(False)
                 self._refresh_preview()
                 return
@@ -468,6 +475,7 @@ class ProtoboardApp(App[None]):
                         f"Output root: {profile.default_output_directory}",
                         f"Theme: {theme_name}",
                         f"Boards saved: {len(profile.boards)}",
+                        f"Local data: {data_directory()}",
                         (
                             "Last board: "
                             f"{profile.last_generated_board_name or 'None'}"
@@ -523,7 +531,14 @@ class ProtoboardApp(App[None]):
             self._syncing_controls = False
 
         if not profiles:
-            self.query_one("#user_summary", Static).update("No saved users found yet.")
+            self.query_one("#user_summary", Static).update(
+                "\n".join(
+                    [
+                        "No saved users found yet.",
+                        f"Local data: {data_directory()}",
+                    ]
+                )
+            )
 
     def _toggle_create_user_form(self, visible: bool) -> None:
         panel = self.query_one("#create_user_panel", Vertical)
@@ -697,17 +712,6 @@ class ProtoboardApp(App[None]):
         status.remove_class("error")
         status.update(message)
         status.add_class("error" if error else "success")
-
-    @staticmethod
-    def _merge_classes(*class_names: str) -> str:
-        return " ".join(class_name for class_name in class_names if class_name)
-
-    def _make_input(self, widget_id: str, *, value: str = "", classes: str = "") -> Input:
-        return Input(
-            value=value,
-            id=widget_id,
-            classes=self._merge_classes("form_input", classes),
-        )
 
     def _value(self, widget_id: str) -> str:
         return self.query_one(f"#{widget_id}", Input).value

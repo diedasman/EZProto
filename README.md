@@ -20,8 +20,7 @@ The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 - Optional corner mounting holes
 - Optional rounded corners with geometry validation
 - Terminal-friendly board preview inside the app
-- User profiles stored as JSON in `users/`
-- App state and event logging in `app_state.json`
+- User profiles and app state stored in a per-user EZProto data directory
 - Optional DFM export with Gerber and drill files
 
 ## Requirements
@@ -96,7 +95,7 @@ This helps VS Code resolve the `textual` imports and the local `src` package cor
 
 ## How To Run
 
-From the project root:
+From anywhere after installation:
 
 ```powershell
 ezproto
@@ -108,10 +107,13 @@ Alternative:
 python -m ezproto
 ```
 
-Running from the project root is recommended because EZProto stores app data relative to the current working directory:
+You do not need to run EZProto from the project root anymore. By default it stores local data in a per-user application data folder:
 
-- `users/*.json`
-- `app_state.json`
+- Windows: `%APPDATA%\EZProto`
+- macOS: `~/Library/Application Support/EZProto`
+- Linux: `$XDG_DATA_HOME/EZProto` or `~/.local/share/EZProto`
+
+If you already used an older repo-root layout, EZProto will migrate that data to the new location the first time it starts.
 
 ## First-Time Setup In The App
 
@@ -183,7 +185,7 @@ Notes:
 
 ## User Data And Logging
 
-EZProto stores user and app metadata locally:
+EZProto stores user and app metadata locally inside its per-user data directory:
 
 - `users/<user_slug>.json`
   - user name
@@ -195,6 +197,15 @@ EZProto stores user and app metadata locally:
   - last active user
   - last generated board
   - event log
+
+You can override the storage location for development or portable installs by setting `EZPROTO_DATA_DIR` before launching EZProto.
+
+Example:
+
+```powershell
+$env:EZPROTO_DATA_DIR = "D:\EZProtoData"
+ezproto
+```
 
 Board history is only updated after a successful KiCad PCB write.
 

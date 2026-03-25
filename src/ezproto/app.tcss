@@ -1,3 +1,16 @@
+# Theme colors:
+# $primary
+# $secondary
+# $accent
+# $foreground
+# $background
+# $surface
+# $error
+# $success
+# $warning
+# $panel
+# $boost
+
 Screen {
     layout: vertical;
 }
@@ -55,11 +68,6 @@ TabbedContent {
     height: auto;
 }
 
-Input.form_input {
-    height: 3;
-    min-height: 3;
-}
-
 #pitch {
     width: 16;
     min-width: 16;
@@ -79,8 +87,9 @@ Input.form_input {
     height: auto;
 }
 
+# Board parameter field labels
 .field_label {
-    content-align: right middle;
+    content-align: center middle;
 }
 
 .settings_label {
@@ -98,7 +107,7 @@ Input.form_input {
 #settings_status,
 #user_summary,
 #board_preview {
-    border: round $surface;
+    border: round $primary;
     padding: 1 1;
     height: auto;
     # margin-bottom: 1;

@@ -123,6 +123,10 @@ TabbedContent {
     # margin-bottom: 1;
 }
 
+#board_name{
+    width: 48;
+}
+
 #board_preview {
     # margin-top: 1;
 }

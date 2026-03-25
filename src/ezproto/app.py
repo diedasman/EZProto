@@ -225,8 +225,7 @@ class ProtoboardApp(App[None]):
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "generate_gerbers":
-            if event.checkbox.value != event.value:
-                event.checkbox.value = event.value
+            # TODO: toggle gerber checkbox state
             self._refresh_preview()
 
     def on_select_changed(self, event: Select.Changed) -> None:

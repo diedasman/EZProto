@@ -36,6 +36,8 @@ The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 
 ```powershell
 git clone https://github.com/diedasman/EZProto.git
+```
+```powershell
 cd EZProto
 ```
 
@@ -47,6 +49,8 @@ Windows PowerShell:
 
 ```powershell
 python -m venv .venv
+```
+```powershell
 .venv\Scripts\Activate.ps1
 ```
 
@@ -54,13 +58,17 @@ Windows Command Prompt:
 
 ```bat
 python -m venv .venv
+```
+```bat
 .venv\Scripts\activate.bat
 ```
 
-macOS / Linux:
+Linux / macOS:
 
 ```bash
 python3 -m venv .venv
+```
+```bash
 source .venv/bin/activate
 ```
 
@@ -68,6 +76,8 @@ source .venv/bin/activate
 
 ```powershell
 python -m pip install --upgrade pip
+```
+```powershell
 python -m pip install -e .
 ```
 
@@ -138,7 +148,7 @@ python -m pip install -e .
 
 ## First-Time Setup In The App
 
-When the app opens:
+**When the app opens:**
 
 1. Go to the `SETTINGS` tab.
 2. Create a user.
@@ -248,13 +258,11 @@ python -m compileall src tests
 
 ## Current Scope
 
-Implemented today:
-
 - Protoboard PCB generation
-- Simple Gerber and drill export
+- Simple Gerber and drill export **NOT WORKING**
 - User profiles and app state persistence
 - Theme selection
-- Board preview
+- Board preview (ASCII)
 
 Planned / in progress:
 

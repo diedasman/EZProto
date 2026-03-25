@@ -240,7 +240,3 @@ Planned / in progress:
 - Enclosure generation
 - 3D export workflow
 - More advanced fabrication output and board features
-
-## License
-
-Add your preferred license here before publishing to GitHub if you want the repository terms to be explicit.

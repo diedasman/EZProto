@@ -2,6 +2,8 @@
 
 EZProto is a Textual-based desktop terminal app for generating simple parametric protoboards directly in KiCad's native `.kicad_pcb` format.
 
+![EZProto](assets/home.png)
+
 Right now the app is focused on the `PROTOBOARD` workflow:
 
 - Generate plated through-hole pad grids
@@ -12,6 +14,8 @@ Right now the app is focused on the `PROTOBOARD` workflow:
 
 The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 
+![Settings](assets/user.png)
+
 ## Features
 
 - Native KiCad PCB output in text-based `.kicad_pcb` format
@@ -21,7 +25,11 @@ The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 - Optional rounded corners with geometry validation
 - Terminal-friendly board preview inside the app
 - User profiles and app state stored in a per-user EZProto data directory
-- Optional DFM export with Gerber and drill files
+- Optional DFM export with Gerber and drill files **Not working**
+
+![Example KiCAD Output](assets/protoPCB.png)
+![Example KiCAD Output](assets/proto3D.png)
+
 
 ## Requirements
 
@@ -86,6 +94,8 @@ This installs the `ezproto` command from the local source tree in editable mode.
 #### 4. Summary
 
 ```bash
+git clone https://github.com/diedasman/EZProto.git
+cd EZProto
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -e .

@@ -25,7 +25,7 @@ The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 - Optional rounded corners with geometry validation
 - Terminal-friendly board preview inside the app
 - User profiles and app state stored in a per-user EZProto data directory
-- Optional DFM export with Gerber and drill files **Not working**
+- Optional DFM export with Gerber, drill, and ZIP packaging options
 
 ![Example KiCAD Output](assets/protoPCB.png)
 ![Example KiCAD Output](assets/proto3D.png)
@@ -192,7 +192,12 @@ You can also use the pitch preset buttons:
 
 If `Mount hole` is set to `0`, corner mounting holes are disabled.
 
-If `Generate Gerbers` is enabled before pressing `Generate PCB`, EZProto will create Gerber and drill outputs in addition to the KiCad board file.
+If `Generate Gerbers` is enabled before pressing `Generate PCB`, EZProto will create Gerber outputs in addition to the KiCad board file.
+
+Optional DFM export controls:
+
+- `Include drill file` adds the plated drill file to the DFM package.
+- `.ZIP archive` creates a `*_DFM.zip` archive next to the DFM folder.
 
 The right side of the `PROTOBOARD` tab shows:
 
@@ -216,13 +221,16 @@ For a board named `My Proto Board`, EZProto writes:
       My_Proto_Board_B_Mask.gbr
       My_Proto_Board_Edge_Cuts.gbr
       My_Proto_Board.drl
+    My_Proto_Board_DFM.zip
 ```
 
 Notes:
 
 - The folder name matches `Board name` exactly.
 - The file stem replaces spaces with underscores.
-- Gerber and drill files are only created when `Generate Gerbers` is checked.
+- Gerber files are only created when `Generate Gerbers` is checked.
+- The drill file is only created when `Include drill file` is checked.
+- The ZIP archive is only created when `.ZIP archive` is checked.
 
 ## User Data And Logging
 
@@ -269,7 +277,7 @@ python -m compileall src tests
 ## Current Scope
 
 - Protoboard PCB generation
-- Simple Gerber and drill export **NOT WORKING**
+- Simple Gerber, drill, and ZIP export
 - User profiles and app state persistence
 - Theme selection
 - Board preview (ASCII)

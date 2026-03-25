@@ -19,7 +19,7 @@ from textual.widgets import ( # type: ignore
     TabPane,
 )
 
-from ezproto.fabrication import write_fabrication_package
+from ezproto.fabrication import write_fabrication_archive, write_fabrication_package
 from ezproto.kicad import write_kicad_pcb
 from ezproto.models import BoardParameters
 from ezproto.preview import render_board_preview
@@ -124,7 +124,20 @@ class ProtoboardApp(App[None]):
                             )
 
                             yield Label("DFM export", classes="field_label")
-                            yield Checkbox("Generate Gerbers", id="generate_gerbers")
+                            
+                            with Horizontal(id="dfm_options"):
+                                yield Checkbox("Generate Gerbers", id="generate_gerbers")
+
+                                yield Checkbox(
+                                    "Include drill file",
+                                    id="include_drill",
+                                    classes="dfm_option",
+                                )
+                                yield Checkbox(
+                                    ".ZIP archive",
+                                    id="zip_output",
+                                    classes="dfm_option",
+                                )
 
                         with Horizontal(id="buttons", classes="button_row"):
                             yield Button("Generate PCB", variant="primary", id="generate")
@@ -193,6 +206,10 @@ class ProtoboardApp(App[None]):
         self.query_one("#board_preview", Static).border_title = "Board Preview"
         self.query_one("#summary", Static).border_title = "Board Details"
         self.query_one("#proto_status", Static).border_title = "Status"
+        self.query_one("#include_drill", Checkbox).value = True
+        self._set_dfm_option_controls_enabled(
+            self.query_one("#generate_gerbers", Checkbox).value
+        )
         self._set_active_user_controls_enabled(False)
         self._refresh_user_list()
         self._restore_last_user()
@@ -227,6 +244,7 @@ class ProtoboardApp(App[None]):
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "generate_gerbers":
+            self._set_dfm_option_controls_enabled(event.checkbox.value)
             self._refresh_preview()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -287,15 +305,34 @@ class ProtoboardApp(App[None]):
             return
 
         generate_gerbers = self.query_one("#generate_gerbers", Checkbox).value
+        include_drill = generate_gerbers and self.query_one("#include_drill", Checkbox).value
+        zip_output = generate_gerbers and self.query_one("#zip_output", Checkbox).value
         dfm_directory = written_file.parent / f"{parameters.output_file_stem}_DFM"
+        archive_path = written_file.parent / f"{parameters.output_file_stem}_DFM.zip"
         fabrication_files: list[Path] = []
         fabrication_error: OSError | None = None
+        archive_error: OSError | None = None
+        written_archive: Path | None = None
 
         if generate_gerbers:
             try:
-                fabrication_files = write_fabrication_package(dfm_directory, parameters)
+                fabrication_files = write_fabrication_package(
+                    dfm_directory,
+                    parameters,
+                    include_drill=include_drill,
+                )
             except OSError as error:
                 fabrication_error = error
+            else:
+                if zip_output:
+                    try:
+                        written_archive = write_fabrication_archive(
+                            archive_path,
+                            fabrication_files,
+                            root_directory_name=dfm_directory.name,
+                        )
+                    except OSError as error:
+                        archive_error = error
 
         board_details = self._build_board_details(
             parameters,
@@ -304,6 +341,10 @@ class ProtoboardApp(App[None]):
             gerbers_generated=generate_gerbers and fabrication_error is None,
             dfm_directory=dfm_directory if generate_gerbers else None,
             fabrication_files=[str(path) for path in fabrication_files],
+            drill_included=include_drill,
+            zip_requested=zip_output,
+            zip_generated=zip_output and fabrication_error is None and archive_error is None,
+            zip_archive=written_archive,
         )
 
         metadata_error: OSError | None = None
@@ -321,6 +362,14 @@ class ProtoboardApp(App[None]):
             )
             return
 
+        if archive_error is not None:
+            self._set_proto_status(
+                f"PCB written to {written_file}; DFM files written to {dfm_directory}, "
+                f"but ZIP archive failed: {archive_error}",
+                error=True,
+            )
+            return
+
         if metadata_error is not None:
             self._set_proto_status(
                 f"PCB written to {written_file}, but metadata update failed: {metadata_error}",
@@ -329,8 +378,11 @@ class ProtoboardApp(App[None]):
             return
 
         if generate_gerbers:
+            output_messages = [f"DFM files written to {dfm_directory}"]
+            if written_archive is not None:
+                output_messages.append(f"ZIP archive written to {written_archive}")
             self._set_proto_status(
-                f"PCB written to {written_file}; DFM files written to {dfm_directory}",
+                f"PCB written to {written_file}; " + "; ".join(output_messages),
                 error=False,
             )
             return
@@ -374,17 +426,22 @@ class ProtoboardApp(App[None]):
             if parameters.has_rounded_corners
             else "Square corners"
         )
-        fabrication_label = (
-            "Gerbers + drill"
-            if self.query_one("#generate_gerbers", Checkbox).value
-            else "PCB only"
-        )
+        if self.query_one("#generate_gerbers", Checkbox).value:
+            fabrication_parts = ["Gerbers"]
+            if self.query_one("#include_drill", Checkbox).value:
+                fabrication_parts.append("drill")
+            if self.query_one("#zip_output", Checkbox).value:
+                fabrication_parts.append("zip")
+            fabrication_label = " + ".join(fabrication_parts)
+        else:
+            fabrication_label = "PCB only"
 
         if self.active_user is None:
             active_user_name = "None"
             output_root = "No active user"
             output_path = "Select or create a user in SETTINGS."
             dfm_path = "Enable DFM export to create Gerbers and drill files."
+            archive_output = "Enable DFM export to create a ZIP archive."
         else:
             active_user_name = self.active_user.name
             output_root = self.active_user.default_output_directory
@@ -392,6 +449,10 @@ class ProtoboardApp(App[None]):
             dfm_path = str(
                 parameters.output_path_for(self.active_user.default_output_directory).parent
                 / f"{parameters.output_file_stem}_DFM"
+            )
+            archive_output = str(
+                parameters.output_path_for(self.active_user.default_output_directory).parent
+                / f"{parameters.output_file_stem}_DFM.zip"
             )
 
         summary.update(
@@ -417,6 +478,7 @@ class ProtoboardApp(App[None]):
                     f"Output file: {parameters.output_file_name}",
                     f"Resolved path: {output_path}",
                     f"DFM directory: {dfm_path}",
+                    f"ZIP archive: {archive_output}",
                 ]
             )
         )
@@ -642,6 +704,10 @@ class ProtoboardApp(App[None]):
         gerbers_generated: bool,
         dfm_directory: Path | None,
         fabrication_files: list[str],
+        drill_included: bool,
+        zip_requested: bool,
+        zip_generated: bool,
+        zip_archive: Path | None,
     ) -> dict[str, object]:
         summary = (
             f"{parameters.columns} x {parameters.rows} grid, "
@@ -668,6 +734,10 @@ class ProtoboardApp(App[None]):
             "gerbers_generated": gerbers_generated,
             "dfm_directory": str(dfm_directory) if dfm_directory is not None else "",
             "fabrication_files": fabrication_files,
+            "drill_included": drill_included,
+            "zip_requested": zip_requested,
+            "zip_generated": zip_generated,
+            "zip_archive": str(zip_archive) if zip_archive is not None else "",
             "generated_at": current_timestamp(),
         }
 
@@ -740,6 +810,10 @@ class ProtoboardApp(App[None]):
         self.query_one("#default_output_directory", Input).disabled = not enabled
         self.query_one("#theme_select", Select).disabled = not enabled
         self.query_one("#save_user_settings", Button).disabled = not enabled
+
+    def _set_dfm_option_controls_enabled(self, enabled: bool) -> None:
+        self.query_one("#include_drill", Checkbox).disabled = not enabled
+        self.query_one("#zip_output", Checkbox).disabled = not enabled
 
     def _theme_options(self) -> list[tuple[str, str]]:
         return [(name, name) for name in sorted(self.available_themes.keys())]

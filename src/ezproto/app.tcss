@@ -68,6 +68,12 @@ TabbedContent {
     height: auto;
 }
 
+#dfm_options {
+    layout: horizontal;
+    height: auto;
+    width: auto;
+}
+
 #pitch {
     width: 16;
     min-width: 16;
@@ -77,6 +83,10 @@ TabbedContent {
 .pitch_preset {
     min-width: 8;
     margin-right: 1;
+}
+
+.dfm_option {
+    margin-right: 2;
 }
 
 .settings_form {

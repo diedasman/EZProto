@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from math import cos, pi, sin
 from pathlib import Path
+import zipfile
 
 from ezproto.models import BoardParameters
 
-GERBER_FORMAT_SCALE = 10000
+GERBER_FORMAT_SCALE = 1000000
 OUTLINE_STROKE_MM = 0.1
 
 
 def write_fabrication_package(
     destination_directory: Path | str,
     parameters: BoardParameters,
+    *,
+    include_drill: bool = True,
 ) -> list[Path]:
     """Write a minimal Gerber/drill package for the generated board."""
 
@@ -43,8 +46,9 @@ def write_fabrication_package(
             aperture_diameter_mm=parameters.pad_diameter_mm,
         ),
         f"{stem}_Edge_Cuts.gbr": _render_outline_layer(parameters),
-        f"{stem}.drl": _render_drill_file(parameters),
     }
+    if include_drill:
+        file_contents[f"{stem}.drl"] = _render_drill_file(parameters)
 
     written_files: list[Path] = []
     for file_name, contents in file_contents.items():
@@ -55,6 +59,31 @@ def write_fabrication_package(
     return written_files
 
 
+def write_fabrication_archive(
+    destination_archive: Path | str,
+    fabrication_files: list[Path],
+    *,
+    root_directory_name: str,
+) -> Path:
+    """Write a ZIP archive for a fabrication package."""
+
+    archive_path = Path(destination_archive).expanduser()
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(
+        archive_path,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as archive:
+        for file_path in fabrication_files:
+            archive.write(
+                file_path,
+                arcname=str(Path(root_directory_name) / file_path.name),
+            )
+
+    return archive_path.resolve()
+
+
 def _render_flash_layer(
     parameters: BoardParameters,
     *,
@@ -63,7 +92,7 @@ def _render_flash_layer(
 ) -> str:
     lines = [
         f"G04 EZProto {layer_name}*",
-        "%FSLAX44Y44*%",
+        "%FSLAX46Y46*%",
         "%MOMM*%",
         "%LPD*%",
         f"%ADD10C,{aperture_diameter_mm:.4f}*%",
@@ -71,7 +100,7 @@ def _render_flash_layer(
     ]
 
     for x_pos, y_pos in parameters.iter_pad_positions():
-        lines.append(f"X{_coord(x_pos)}Y{_coord(y_pos)}D03*")
+        lines.append(f"X{_gerber_coord(x_pos)}Y{_gerber_coord(_fabrication_y(y_pos))}D03*")
 
     lines.append("M02*")
     return "\n".join(lines) + "\n"
@@ -81,7 +110,7 @@ def _render_outline_layer(parameters: BoardParameters) -> str:
     points = _outline_points(parameters)
     lines = [
         "G04 EZProto Edge.Cuts*",
-        "%FSLAX44Y44*%",
+        "%FSLAX46Y46*%",
         "%MOMM*%",
         "%LPD*%",
         f"%ADD10C,{OUTLINE_STROKE_MM:.4f}*%",
@@ -89,9 +118,13 @@ def _render_outline_layer(parameters: BoardParameters) -> str:
     ]
 
     start_x, start_y = points[0]
-    lines.append(f"X{_coord(start_x)}Y{_coord(start_y)}D02*")
+    lines.append(
+        f"X{_gerber_coord(start_x)}Y{_gerber_coord(_fabrication_y(start_y))}D02*"
+    )
     for point_x, point_y in points[1:]:
-        lines.append(f"X{_coord(point_x)}Y{_coord(point_y)}D01*")
+        lines.append(
+            f"X{_gerber_coord(point_x)}Y{_gerber_coord(_fabrication_y(point_y))}D01*"
+        )
 
     lines.append("M02*")
     return "\n".join(lines) + "\n"
@@ -112,16 +145,28 @@ def _render_drill_file(parameters: BoardParameters) -> str:
     lines = [
         "M48",
         "; EZProto drill file",
-        "METRIC,TZ",
+        "; FORMAT={-:-/ absolute / metric / decimal}",
+        "FMAT,2",
+        "METRIC",
     ]
     for tool_name, diameter in tool_sizes.items():
         lines.append(f"{tool_name}C{diameter:.4f}")
-    lines.append("%")
+    lines.extend(
+        [
+            "%",
+            # Excellon consumers do not always default to absolute coordinates.
+            # Declaring this explicitly keeps drill hits aligned with the copper flashes.
+            "G90",
+            "G05",
+        ]
+    )
 
     for tool_name, positions in tool_map.items():
         lines.append(tool_name)
         for x_pos, y_pos in positions:
-            lines.append(f"X{_coord(x_pos)}Y{_coord(y_pos)}")
+            lines.append(
+                f"X{_drill_coord(x_pos)}Y{_drill_coord(_fabrication_y(y_pos))}"
+            )
 
     lines.append("M30")
     return "\n".join(lines) + "\n"
@@ -179,5 +224,16 @@ def _arc_points(
     return points
 
 
-def _coord(value_mm: float) -> str:
-    return f"{int(round(value_mm * GERBER_FORMAT_SCALE)):08d}"
+def _fabrication_y(value_mm: float) -> float:
+    return -value_mm
+
+
+def _gerber_coord(value_mm: float) -> str:
+    return str(int(round(value_mm * GERBER_FORMAT_SCALE)))
+
+
+def _drill_coord(value_mm: float) -> str:
+    text = f"{value_mm:.4f}".rstrip("0").rstrip(".")
+    if "." not in text:
+        return f"{text}.0"
+    return text

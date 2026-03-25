@@ -88,8 +88,10 @@ class BoardParameters:
 
         for row in range(self.rows):
             y_pos = origin_y + (row * self.pitch_mm)
+            # y_pos = (row * self.pitch_mm)
             for column in range(self.columns):
                 x_pos = origin_x + (column * self.pitch_mm)
+                # x_pos = (column * self.pitch_mm)
                 yield x_pos, y_pos
 
     def iter_mounting_hole_positions(self) -> Iterator[tuple[float, float]]:

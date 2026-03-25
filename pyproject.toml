@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ezproto"
+version = "0.1.0"
+description = "Parametric protoboard generator with a Textual interface and KiCad PCB export"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "textual>=0.60,<1.0",
+]
+
+[project.scripts]
+ezproto = "ezproto.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

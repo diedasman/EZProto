@@ -1,0 +1,183 @@
+"""Simple Gerber and drill generation for EZProto boards."""
+
+from __future__ import annotations
+
+from math import cos, pi, sin
+from pathlib import Path
+
+from ezproto.models import BoardParameters
+
+GERBER_FORMAT_SCALE = 10000
+OUTLINE_STROKE_MM = 0.1
+
+
+def write_fabrication_package(
+    destination_directory: Path | str,
+    parameters: BoardParameters,
+) -> list[Path]:
+    """Write a minimal Gerber/drill package for the generated board."""
+
+    output_directory = Path(destination_directory).expanduser()
+    output_directory.mkdir(parents=True, exist_ok=True)
+
+    stem = parameters.output_file_stem
+    file_contents = {
+        f"{stem}_F_Cu.gbr": _render_flash_layer(
+            parameters,
+            layer_name="F.Cu",
+            aperture_diameter_mm=parameters.pad_diameter_mm,
+        ),
+        f"{stem}_B_Cu.gbr": _render_flash_layer(
+            parameters,
+            layer_name="B.Cu",
+            aperture_diameter_mm=parameters.pad_diameter_mm,
+        ),
+        f"{stem}_F_Mask.gbr": _render_flash_layer(
+            parameters,
+            layer_name="F.Mask",
+            aperture_diameter_mm=parameters.pad_diameter_mm,
+        ),
+        f"{stem}_B_Mask.gbr": _render_flash_layer(
+            parameters,
+            layer_name="B.Mask",
+            aperture_diameter_mm=parameters.pad_diameter_mm,
+        ),
+        f"{stem}_Edge_Cuts.gbr": _render_outline_layer(parameters),
+        f"{stem}.drl": _render_drill_file(parameters),
+    }
+
+    written_files: list[Path] = []
+    for file_name, contents in file_contents.items():
+        path = output_directory / file_name
+        path.write_text(contents, encoding="utf-8")
+        written_files.append(path.resolve())
+
+    return written_files
+
+
+def _render_flash_layer(
+    parameters: BoardParameters,
+    *,
+    layer_name: str,
+    aperture_diameter_mm: float,
+) -> str:
+    lines = [
+        f"G04 EZProto {layer_name}*",
+        "%FSLAX44Y44*%",
+        "%MOMM*%",
+        "%LPD*%",
+        f"%ADD10C,{aperture_diameter_mm:.4f}*%",
+        "D10*",
+    ]
+
+    for x_pos, y_pos in parameters.iter_pad_positions():
+        lines.append(f"X{_coord(x_pos)}Y{_coord(y_pos)}D03*")
+
+    lines.append("M02*")
+    return "\n".join(lines) + "\n"
+
+
+def _render_outline_layer(parameters: BoardParameters) -> str:
+    points = _outline_points(parameters)
+    lines = [
+        "G04 EZProto Edge.Cuts*",
+        "%FSLAX44Y44*%",
+        "%MOMM*%",
+        "%LPD*%",
+        f"%ADD10C,{OUTLINE_STROKE_MM:.4f}*%",
+        "D10*",
+    ]
+
+    start_x, start_y = points[0]
+    lines.append(f"X{_coord(start_x)}Y{_coord(start_y)}D02*")
+    for point_x, point_y in points[1:]:
+        lines.append(f"X{_coord(point_x)}Y{_coord(point_y)}D01*")
+
+    lines.append("M02*")
+    return "\n".join(lines) + "\n"
+
+
+def _render_drill_file(parameters: BoardParameters) -> str:
+    tool_map: dict[str, list[tuple[float, float]]] = {
+        "T01": list(parameters.iter_pad_positions()),
+    }
+    tool_sizes = {
+        "T01": parameters.pth_drill_mm,
+    }
+
+    if parameters.mounting_hole_diameter_mm > 0:
+        tool_map["T02"] = list(parameters.iter_mounting_hole_positions())
+        tool_sizes["T02"] = parameters.mounting_hole_diameter_mm
+
+    lines = [
+        "M48",
+        "; EZProto drill file",
+        "METRIC,TZ",
+    ]
+    for tool_name, diameter in tool_sizes.items():
+        lines.append(f"{tool_name}C{diameter:.4f}")
+    lines.append("%")
+
+    for tool_name, positions in tool_map.items():
+        lines.append(tool_name)
+        for x_pos, y_pos in positions:
+            lines.append(f"X{_coord(x_pos)}Y{_coord(y_pos)}")
+
+    lines.append("M30")
+    return "\n".join(lines) + "\n"
+
+
+def _outline_points(parameters: BoardParameters) -> list[tuple[float, float]]:
+    width = parameters.board_width_mm
+    height = parameters.board_height_mm
+    radius = parameters.rounded_corner_radius_mm
+
+    if radius <= 0:
+        return [
+            (0.0, 0.0),
+            (width, 0.0),
+            (width, height),
+            (0.0, height),
+            (0.0, 0.0),
+        ]
+
+    points: list[tuple[float, float]] = [
+        (radius, 0.0),
+        (width - radius, 0.0),
+        *_arc_points(width - radius, radius, radius, -90.0, 0.0),
+        (width, height - radius),
+        *_arc_points(width - radius, height - radius, radius, 0.0, 90.0),
+        (radius, height),
+        *_arc_points(radius, height - radius, radius, 90.0, 180.0),
+        (0.0, radius),
+        *_arc_points(radius, radius, radius, 180.0, 270.0),
+        (radius, 0.0),
+    ]
+    return points
+
+
+def _arc_points(
+    center_x: float,
+    center_y: float,
+    radius: float,
+    start_degrees: float,
+    end_degrees: float,
+    *,
+    steps: int = 8,
+) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    for step in range(1, steps + 1):
+        fraction = step / steps
+        angle = start_degrees + ((end_degrees - start_degrees) * fraction)
+        radians = (angle * pi) / 180.0
+        points.append(
+            (
+                center_x + (cos(radians) * radius),
+                center_y + (sin(radians) * radius),
+            )
+        )
+    return points
+
+
+def _coord(value_mm: float) -> str:
+    return f"{int(round(value_mm * GERBER_FORMAT_SCALE)):08d}"

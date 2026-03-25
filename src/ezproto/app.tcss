@@ -1,0 +1,125 @@
+Screen {
+    layout: vertical;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+#protoboard_layout,
+#settings_layout {
+    height: 1fr;
+}
+
+#protoboard_layout {
+    layout: horizontal;
+    padding: 1 2;
+}
+
+#settings_layout {
+    layout: vertical;
+    padding: 1 2;
+}
+
+#settings_top {
+    layout: horizontal;
+    height: auto;
+}
+
+.panel {
+    width: 1fr;
+    height: 1fr;
+    border: round $accent;
+    padding: 1 1;
+}
+
+.settings_panel {
+    height: auto;
+    min-height: 12;
+}
+
+#create_user_panel {
+    margin-top: 1;
+}
+
+#form {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 18 1fr;
+    grid-gutter: 1 1;
+    # padding: 1 1;
+}
+
+#pitch_controls {
+    layout: horizontal;
+    height: auto;
+}
+
+Input.form_input {
+    height: 3;
+    min-height: 3;
+}
+
+#pitch {
+    width: 16;
+    min-width: 16;
+    margin-right: 1;
+}
+
+.pitch_preset {
+    min-width: 8;
+    margin-right: 1;
+}
+
+.settings_form {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 24 1fr;
+    grid-gutter: 1 1;
+    height: auto;
+}
+
+.field_label {
+    content-align: right middle;
+}
+
+.settings_label {
+    padding-bottom: 1;
+}
+
+.button_row {
+    margin-top: 1;
+    height: auto;
+}
+
+#summary,
+#hint,
+#proto_status,
+#settings_status,
+#user_summary,
+#board_preview {
+    border: round $surface;
+    padding: 1 1;
+    height: auto;
+    # margin-bottom: 1;
+}
+
+#board_preview {
+    # margin-top: 1;
+}
+
+.status_box {
+    # margin-top: 1;
+}
+
+.hidden {
+    display: none;
+}
+
+.success {
+    color: $success;
+}
+
+.error {
+    color: $error;
+}

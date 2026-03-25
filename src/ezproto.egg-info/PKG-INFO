@@ -1,0 +1,33 @@
+Metadata-Version: 2.4
+Name: ezproto
+Version: 0.1.0
+Summary: Parametric protoboard generator with a Textual interface and KiCad PCB export
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: textual<1.0,>=0.60
+
+# EZProto
+
+EZProto is a small Textual app that generates a parametric protoboard directly as a KiCad `.kicad_pcb` file.
+
+## What It Generates
+
+- A plated through-hole grid with configurable rows, columns, pitch, drill size, and pad diameter
+- Four corner mounting holes as NPTH pads
+- A rectangular `Edge.Cuts` board outline sized from the grid and margin
+
+## Run It
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+ezproto
+```
+
+The default output file is `protoboard.kicad_pcb` in the current directory.
+
+## Notes
+
+- Set mounting hole diameter to `0` if you want to disable corner holes.
+- The app validates pad, margin, and mounting-hole geometry before writing the KiCad file.

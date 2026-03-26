@@ -110,6 +110,7 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                     app.query_one("#edge_margin", Input).value = "2"
                     app.query_one("#rounded_corners", Select).value = "1"
                     app.query_one("#generate_gerbers", Checkbox).value = True
+                    app.query_one("#zip_output", Checkbox).value = True
 
                     await pilot.pause()
                     app.action_generate()
@@ -118,9 +119,11 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                     status = app.query_one("#proto_status", Static)
                     self.assertIn("PCB written to", str(status.renderable))
                     self.assertIn("DFM files written to", str(status.renderable))
+                    self.assertIn("ZIP archive written to", str(status.renderable))
 
                 board_directory = output_root / board_name
                 dfm_directory = board_directory / f"{board_name}_DFM"
+                archive_path = board_directory / f"{board_name}_DFM.zip"
                 pcb_path = board_directory / f"{board_name}.kicad_pcb"
 
                 expected_dfm_files = {
@@ -128,6 +131,10 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                     f"{board_name}_B_Cu.gbr",
                     f"{board_name}_F_Mask.gbr",
                     f"{board_name}_B_Mask.gbr",
+                    f"{board_name}_F_Paste.gbr",
+                    f"{board_name}_B_Paste.gbr",
+                    f"{board_name}_F_Silkscreen.gbr",
+                    f"{board_name}_B_Silkscreen.gbr",
                     f"{board_name}_Edge_Cuts.gbr",
                     f"{board_name}.drl",
                 }
@@ -135,17 +142,31 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(board_directory.exists())
                 self.assertTrue(pcb_path.exists())
                 self.assertTrue(dfm_directory.exists())
+                self.assertTrue(archive_path.exists())
                 self.assertEqual({path.name for path in dfm_directory.iterdir()}, expected_dfm_files)
 
                 pcb_contents = pcb_path.read_text(encoding="utf-8")
                 self.assertEqual(pcb_contents.count("(gr_arc"), 4)
                 self.assertNotIn("(gr_rect", pcb_contents)
 
+                with zipfile.ZipFile(archive_path) as archive:
+                    archived_names = set(archive.namelist())
+                    self.assertIn(
+                        f"{dfm_directory.name}/{board_name}_F_Cu.gbr",
+                        archived_names,
+                    )
+                    self.assertIn(
+                        f"{dfm_directory.name}/{board_name}_F_Silkscreen.gbr",
+                        archived_names,
+                    )
+
                 saved_profile = load_user_profile("user")
                 self.assertIsNotNone(saved_profile)
                 assert saved_profile is not None
                 self.assertEqual(saved_profile.default_output_directory, str(output_root))
                 self.assertIn(board_name, saved_profile.boards)
+                self.assertTrue(saved_profile.boards[board_name]["zip_generated"])
+                self.assertEqual(saved_profile.boards[board_name]["zip_archive"], str(archive_path))
 
     async def test_app_respects_drill_and_zip_export_options(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -204,6 +225,10 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn(f"{dfm_directory.name}/{board_name}.drl", archived_names)
                     self.assertIn(
                         f"{dfm_directory.name}/{board_name}_F_Cu.gbr",
+                        archived_names,
+                    )
+                    self.assertIn(
+                        f"{dfm_directory.name}/{board_name}_F_Silkscreen.gbr",
                         archived_names,
                     )
 

@@ -36,7 +36,7 @@ TabbedContent {
 
 #settings_top {
     layout: horizontal;
-    height: auto;
+    height: 30;
 }
 
 .panel {
@@ -47,8 +47,8 @@ TabbedContent {
 }
 
 .settings_panel {
-    height: auto;
-    min-height: 12;
+    height: 30;
+    # min-height: 12;
 }
 
 #create_user_panel {

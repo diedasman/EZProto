@@ -60,6 +60,32 @@ class UpdateInstallationTests(unittest.TestCase):
             description="download the latest EZProto changes",
         )
 
+    def test_update_ignores_untracked_user_output(self) -> None:
+        repository_root = Path("C:/EZProto")
+
+        with mock.patch("ezproto.updater._require_git", return_value="git"):
+            with mock.patch(
+                "ezproto.updater.find_repository_root",
+                return_value=repository_root,
+            ):
+                with mock.patch(
+                    "ezproto.updater._git_output",
+                    side_effect=["?? Demo Board/\n?? output/test1/\n", "abc1234", "abc1234"],
+                ):
+                    with mock.patch(
+                        "ezproto.updater._run_command",
+                        return_value="Already up to date.",
+                    ) as run_command:
+                        result = update_installation()
+
+        self.assertFalse(result.updated)
+        self.assertEqual(result.previous_revision, "abc1234")
+        self.assertEqual(result.current_revision, "abc1234")
+        run_command.assert_called_once_with(
+            ["git", "-C", str(repository_root), "pull", "--ff-only"],
+            description="download the latest EZProto changes",
+        )
+
     def test_update_reinstalls_after_new_commit_is_pulled(self) -> None:
         repository_root = Path("C:/EZProto")
 

@@ -9,7 +9,9 @@ import zipfile
 from ezproto.models import BoardParameters
 
 GERBER_FORMAT_SCALE = 1000000
-OUTLINE_STROKE_MM = 0.1
+GERBER_COORD_WIDTH = 10
+OUTLINE_STROKE_MM = 0.15
+MASK_EXPANSION_MM = 0.1
 
 
 def write_fabrication_package(
@@ -38,13 +40,17 @@ def write_fabrication_package(
         f"{stem}_F_Mask.gbr": _render_flash_layer(
             parameters,
             layer_name="F.Mask",
-            aperture_diameter_mm=parameters.pad_diameter_mm,
+            aperture_diameter_mm=parameters.pad_diameter_mm + MASK_EXPANSION_MM,
         ),
         f"{stem}_B_Mask.gbr": _render_flash_layer(
             parameters,
             layer_name="B.Mask",
-            aperture_diameter_mm=parameters.pad_diameter_mm,
+            aperture_diameter_mm=parameters.pad_diameter_mm + MASK_EXPANSION_MM,
         ),
+        f"{stem}_F_Paste.gbr": _render_empty_layer("F.Paste"),
+        f"{stem}_B_Paste.gbr": _render_empty_layer("B.Paste"),
+        f"{stem}_F_Silkscreen.gbr": _render_empty_layer("F.Silkscreen"),
+        f"{stem}_B_Silkscreen.gbr": _render_empty_layer("B.Silkscreen"),
         f"{stem}_Edge_Cuts.gbr": _render_outline_layer(parameters),
     }
     if include_drill:
@@ -90,14 +96,16 @@ def _render_flash_layer(
     layer_name: str,
     aperture_diameter_mm: float,
 ) -> str:
-    lines = [
-        f"G04 EZProto {layer_name}*",
-        "%FSLAX46Y46*%",
-        "%MOMM*%",
-        "%LPD*%",
-        f"%ADD10C,{aperture_diameter_mm:.4f}*%",
-        "D10*",
-    ]
+    lines = _gerber_header(
+        layer_name,
+        file_function=_layer_file_function(layer_name),
+    )
+    lines.extend(
+        [
+            f"%ADD10C,{aperture_diameter_mm:.4f}*%",
+            "D10*",
+        ]
+    )
 
     for x_pos, y_pos in parameters.iter_pad_positions():
         lines.append(f"X{_gerber_coord(x_pos)}Y{_gerber_coord(_fabrication_y(y_pos))}D03*")
@@ -108,14 +116,16 @@ def _render_flash_layer(
 
 def _render_outline_layer(parameters: BoardParameters) -> str:
     points = _outline_points(parameters)
-    lines = [
-        "G04 EZProto Edge.Cuts*",
-        "%FSLAX46Y46*%",
-        "%MOMM*%",
-        "%LPD*%",
-        f"%ADD10C,{OUTLINE_STROKE_MM:.4f}*%",
-        "D10*",
-    ]
+    lines = _gerber_header(
+        "Edge.Cuts",
+        file_function=_layer_file_function("Edge.Cuts"),
+    )
+    lines.extend(
+        [
+            f"%ADD10C,{OUTLINE_STROKE_MM:.4f}*%",
+            "D10*",
+        ]
+    )
 
     start_x, start_y = points[0]
     lines.append(
@@ -126,6 +136,15 @@ def _render_outline_layer(parameters: BoardParameters) -> str:
             f"X{_gerber_coord(point_x)}Y{_gerber_coord(_fabrication_y(point_y))}D01*"
         )
 
+    lines.append("M02*")
+    return "\n".join(lines) + "\n"
+
+
+def _render_empty_layer(layer_name: str) -> str:
+    lines = _gerber_header(
+        layer_name,
+        file_function=_layer_file_function(layer_name),
+    )
     lines.append("M02*")
     return "\n".join(lines) + "\n"
 
@@ -145,9 +164,9 @@ def _render_drill_file(parameters: BoardParameters) -> str:
     lines = [
         "M48",
         "; EZProto drill file",
-        "; FORMAT={-:-/ absolute / metric / decimal}",
+        "; FORMAT={absolute / metric / decimal}",
         "FMAT,2",
-        "METRIC",
+        "METRIC,TZ",
     ]
     for tool_name, diameter in tool_sizes.items():
         lines.append(f"{tool_name}C{diameter:.4f}")
@@ -170,6 +189,32 @@ def _render_drill_file(parameters: BoardParameters) -> str:
 
     lines.append("M30")
     return "\n".join(lines) + "\n"
+
+
+def _gerber_header(layer_name: str, *, file_function: str) -> list[str]:
+    return [
+        f"G04 EZProto {layer_name}*",
+        "%FSLAX46Y46*%",
+        "%MOMM*%",
+        f"%TF.FileFunction,{file_function}*%",
+        "%TF.FilePolarity,Positive*%",
+        "%LPD*%",
+    ]
+
+
+def _layer_file_function(layer_name: str) -> str:
+    file_functions = {
+        "F.Cu": "Copper,L1,Top",
+        "B.Cu": "Copper,L2,Bottom",
+        "F.Mask": "Soldermask,Top",
+        "B.Mask": "Soldermask,Bottom",
+        "F.Paste": "Paste,Top",
+        "B.Paste": "Paste,Bottom",
+        "F.Silkscreen": "Legend,Top",
+        "B.Silkscreen": "Legend,Bottom",
+        "Edge.Cuts": "Profile,NP",
+    }
+    return file_functions[layer_name]
 
 
 def _outline_points(parameters: BoardParameters) -> list[tuple[float, float]]:
@@ -225,11 +270,11 @@ def _arc_points(
 
 
 def _fabrication_y(value_mm: float) -> float:
-    return -value_mm
+    return value_mm
 
 
 def _gerber_coord(value_mm: float) -> str:
-    return str(int(round(value_mm * GERBER_FORMAT_SCALE)))
+    return f"{int(round(value_mm * GERBER_FORMAT_SCALE)):0{GERBER_COORD_WIDTH}d}"
 
 
 def _drill_coord(value_mm: float) -> str:

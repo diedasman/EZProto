@@ -120,7 +120,12 @@ def _ensure_clean_checkout(git_executable: str, repository_root: Path) -> None:
         "status",
         "--porcelain",
     )
-    if status_output.strip():
+    tracked_changes = [
+        line
+        for line in status_output.splitlines()
+        if line.strip() and not line.startswith("??")
+    ]
+    if tracked_changes:
         raise UpdateError(
             "Update cancelled because the EZProto checkout has local changes. "
             "Commit or stash them before running `ezproto update`."

@@ -171,8 +171,10 @@ class ProtoboardApp(App[None]):
                             yield Static(id="user_summary")
 
                         with Vertical(id="active_user_panel", classes="panel settings_panel"):
+                            
                             yield Static("No active user selected", id="active_user_name")
                             with Container(id="active_user_form", classes="settings_form"):
+                                
                                 yield Label("Default output directory", classes="field_label")
                                 yield Input(id="default_output_directory")
                                 yield Label("Theme", classes="field_label")
@@ -182,6 +184,7 @@ class ProtoboardApp(App[None]):
                                     allow_blank=False,
                                     id="theme_select",
                                 )
+                            
                             with Horizontal(classes="button_row"):
                                 yield Button("Save User Settings", id="save_user_settings")
 
@@ -409,12 +412,16 @@ class ProtoboardApp(App[None]):
     def _refresh_preview(self) -> None:
         summary = self.query_one("#summary", Static)
         preview = self.query_one("#board_preview", Static)
+        status = self.query_one("#proto_status", Static)
 
         try:
             parameters = self._read_parameters()
         except ValueError as error:
             message = f"Waiting for valid parameters.\n\n{error}"
+            idle_message =f"..."
             summary.update(message)
+            preview.update(idle_message)
+            status.update(idle_message)
             return
 
         mounting_holes = (

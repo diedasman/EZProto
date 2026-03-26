@@ -42,6 +42,10 @@ class FabricationPackageTests(unittest.TestCase):
                 "Demo_Board_B_Cu.gbr",
                 "Demo_Board_F_Mask.gbr",
                 "Demo_Board_B_Mask.gbr",
+                "Demo_Board_F_Paste.gbr",
+                "Demo_Board_B_Paste.gbr",
+                "Demo_Board_F_Silkscreen.gbr",
+                "Demo_Board_B_Silkscreen.gbr",
                 "Demo_Board_Edge_Cuts.gbr",
                 "Demo_Board.drl",
             }
@@ -67,6 +71,10 @@ class FabricationPackageTests(unittest.TestCase):
                 "Demo_Board_B_Cu.gbr",
                 "Demo_Board_F_Mask.gbr",
                 "Demo_Board_B_Mask.gbr",
+                "Demo_Board_F_Paste.gbr",
+                "Demo_Board_B_Paste.gbr",
+                "Demo_Board_F_Silkscreen.gbr",
+                "Demo_Board_B_Silkscreen.gbr",
                 "Demo_Board_Edge_Cuts.gbr",
             }
 
@@ -94,6 +102,10 @@ class FabricationPackageTests(unittest.TestCase):
                         f"{dfm_directory.name}/Demo_Board_B_Cu.gbr",
                         f"{dfm_directory.name}/Demo_Board_F_Mask.gbr",
                         f"{dfm_directory.name}/Demo_Board_B_Mask.gbr",
+                        f"{dfm_directory.name}/Demo_Board_F_Paste.gbr",
+                        f"{dfm_directory.name}/Demo_Board_B_Paste.gbr",
+                        f"{dfm_directory.name}/Demo_Board_F_Silkscreen.gbr",
+                        f"{dfm_directory.name}/Demo_Board_B_Silkscreen.gbr",
                         f"{dfm_directory.name}/Demo_Board_Edge_Cuts.gbr",
                         f"{dfm_directory.name}/Demo_Board.drl",
                     },
@@ -122,10 +134,10 @@ class FabricationPackageTests(unittest.TestCase):
             drill = (dfm_directory / "Demo_Board.drl").read_text(encoding="utf-8")
 
             self.assertIn("\nFMAT,2\n", drill)
-            self.assertIn("\nMETRIC\n", drill)
+            self.assertIn("\nMETRIC,TZ\n", drill)
             self.assertIn("\n%\nG90\nG05\nT01\n", drill)
 
-    def test_fabrication_coordinates_use_kicad_style_y_axis(self) -> None:
+    def test_fabrication_coordinates_use_positive_fixed_width_output(self) -> None:
         board = make_board(
             columns=10,
             rows=12,
@@ -143,8 +155,32 @@ class FabricationPackageTests(unittest.TestCase):
             drill = (dfm_directory / "Demo_Board.drl").read_text(encoding="utf-8")
             front_cu = (dfm_directory / "Demo_Board_F_Cu.gbr").read_text(encoding="utf-8")
 
-            self.assertIn("X2000000Y-2000000D03*", front_cu)
-            self.assertIn("\nT01\nX2.0Y-2.0\n", drill)
+            self.assertIn("X0002000000Y0002000000D03*", front_cu)
+            self.assertIn("\nT01\nX2.0Y2.0\n", drill)
+
+    def test_gerbers_include_layer_attributes_and_mask_expansion(self) -> None:
+        board = make_board(mounting_hole_diameter_mm=0.0)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dfm_directory = Path(temp_dir) / board.output_directory_name / f"{board.output_file_stem}_DFM"
+            write_fabrication_package(dfm_directory, board)
+
+            front_cu = (dfm_directory / "Demo_Board_F_Cu.gbr").read_text(encoding="utf-8")
+            front_mask = (dfm_directory / "Demo_Board_F_Mask.gbr").read_text(encoding="utf-8")
+            front_paste = (dfm_directory / "Demo_Board_F_Paste.gbr").read_text(encoding="utf-8")
+            front_silkscreen = (dfm_directory / "Demo_Board_F_Silkscreen.gbr").read_text(encoding="utf-8")
+            outline = (dfm_directory / "Demo_Board_Edge_Cuts.gbr").read_text(encoding="utf-8")
+
+            self.assertIn("%TF.FileFunction,Copper,L1,Top*%", front_cu)
+            self.assertIn("%TF.FilePolarity,Positive*%", front_cu)
+            self.assertIn("%ADD10C,1.9000*%", front_mask)
+            self.assertIn("%TF.FileFunction,Soldermask,Top*%", front_mask)
+            self.assertIn("%TF.FileFunction,Paste,Top*%", front_paste)
+            self.assertTrue(front_paste.rstrip().endswith("M02*"))
+            self.assertIn("%TF.FileFunction,Legend,Top*%", front_silkscreen)
+            self.assertTrue(front_silkscreen.rstrip().endswith("M02*"))
+            self.assertIn("%TF.FileFunction,Profile,NP*%", outline)
+            self.assertIn("%ADD10C,0.1500*%", outline)
 
 
 if __name__ == "__main__":

@@ -99,7 +99,10 @@ TabbedContent {
 
 # Board parameter field labels
 .field_label {
-    content-align: center middle;
+    # content-align: center middle;
+    border: round $surface;
+    # height: 32;
+    padding: 0 2;
 }
 
 .settings_label {

@@ -1,10 +1,9 @@
-The tool is becoming quite powerful. I also want to add a Breakout Board generator. The scope is that the user supplies a footprint in kiCAD format (directory to file), the PCB size (only rectangular selection for now, width, height), breakout pitch and breakout header locations; NESW of the user's footprint.
-
 # 📦 Breakout Board Generator — Project Plan
 
-## 1. 🎯 Goal
-
+The tool is taking shape. I also want to add a Breakout Board generator. The scope is that the user supplies a footprint in kiCAD format (directory to file), the PCB size (only rectangular selection for now, width, height), breakout pitch and breakout header locations; NESW of the user's footprint.
 Add a new “Breakout Generator” tab to the existing Textual-based UI that:
+
+## 1. 🎯 Goal
 
 * Accepts a KiCad footprint (.kicad_mod or folder)
 * Lets user define:

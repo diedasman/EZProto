@@ -71,6 +71,7 @@ class ProtoboardApp(App[None]):
         self.active_user: UserProfile | None = None
         self._syncing_controls = False
 
+    # Board Properties and Controls Widget Rendering:
     def compose(self) -> ComposeResult:
         yield Header()
         with TabbedContent(initial="protoboard", id="main_tabs"):

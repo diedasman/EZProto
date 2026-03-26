@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from math import sqrt
 from pathlib import Path
+from typing import Any
 
+from ezproto.breakout.footprint_parser import Atom, atom, serialize_sexpr
+from ezproto.breakout.models import BreakoutBoard
 from ezproto.models import BoardParameters
 
 
@@ -79,6 +83,67 @@ def write_kicad_pcb(destination: Path | str, parameters: BoardParameters) -> Pat
     return output_path.resolve()
 
 
+def render_breakout_board(board: BreakoutBoard) -> str:
+    """Render a breakout board into a KiCad `.kicad_pcb` document."""
+
+    net_numbers = {net_name: index for index, net_name in enumerate(board.net_names, start=1)}
+    lines: list[str] = [
+        "(kicad_pcb",
+        '  (version 20221018)',
+        '  (generator "EZProto")',
+        "  (general",
+        "    (thickness 1.6)",
+        "  )",
+        '  (paper "A4")',
+        "  (layers",
+        '    (0 "F.Cu" signal)',
+        '    (31 "B.Cu" signal)',
+        '    (32 "B.Adhes" user)',
+        '    (33 "F.Adhes" user)',
+        '    (34 "B.Paste" user)',
+        '    (35 "F.Paste" user)',
+        '    (36 "B.SilkS" user)',
+        '    (37 "F.SilkS" user)',
+        '    (38 "B.Mask" user)',
+        '    (39 "F.Mask" user)',
+        '    (40 "Dwgs.User" user)',
+        '    (41 "Cmts.User" user)',
+        '    (42 "Eco1.User" user)',
+        '    (43 "Eco2.User" user)',
+        '    (44 "Edge.Cuts" user)',
+        '    (45 "Margin" user)',
+        '    (46 "B.CrtYd" user)',
+        '    (47 "F.CrtYd" user)',
+        '    (48 "B.Fab" user)',
+        '    (49 "F.Fab" user)',
+        "  )",
+        '  (net 0 "")',
+    ]
+    for net_name, number in net_numbers.items():
+        lines.append(f'  (net {number} "{_escape_text(net_name)}")')
+
+    lines.extend(_render_imported_footprint(board, net_numbers))
+    lines.extend(_render_breakout_headers(board, net_numbers))
+    lines.extend(_render_breakout_segments(board, net_numbers))
+    lines.extend(
+        _render_rect_outline(
+            width_mm=board.config.board_width_mm,
+            height_mm=board.config.board_height_mm,
+        )
+    )
+    lines.append(")")
+    return "\n".join(lines) + "\n"
+
+
+def write_breakout_board(destination: Path | str, board: BreakoutBoard) -> Path:
+    """Write a rendered breakout board to disk."""
+
+    output_path = Path(destination).expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(render_breakout_board(board), encoding="utf-8")
+    return output_path.resolve()
+
+
 def _render_pads(parameters: BoardParameters) -> list[str]:
     pad_size = _mm(parameters.pad_diameter_mm)
     drill_size = _mm(parameters.pth_drill_mm)
@@ -142,18 +207,7 @@ def _render_board_outline(
     height: str,
 ) -> list[str]:
     if not parameters.has_rounded_corners:
-        return [
-            "  (gr_rect",
-            "    (start 0 0)",
-            f"    (end {width} {height})",
-            "    (stroke",
-            "      (width 0.1)",
-            "      (type default)",
-            "    )",
-            "    (fill none)",
-            '    (layer "Edge.Cuts")',
-            "  )",
-        ]
+        return _render_rect_outline(width_mm=float(width), height_mm=float(height))
 
     radius = parameters.rounded_corner_radius_mm
     board_width = parameters.board_width_mm
@@ -200,6 +254,107 @@ def _render_board_outline(
     ]
 
 
+def _render_imported_footprint(
+    board: BreakoutBoard,
+    net_numbers: dict[str, int],
+) -> list[str]:
+    footprint_node = deepcopy(board.footprint.tree)
+    _remove_children(footprint_node, {"version", "generator", "generator_version"})
+    _upsert_footprint_at(
+        footprint_node,
+        x_pos=board.footprint_origin_x,
+        y_pos=board.footprint_origin_y,
+    )
+
+    pad_net_map = {
+        pad.name: pad.net
+        for pad in board.pads
+        if pad.net is not None
+    }
+    for child in footprint_node:
+        if _node_head(child) != "pad":
+            continue
+        pad_name = _atom_value(child[1]) if len(child) > 1 and isinstance(child[1], Atom) else ""
+        net_name = pad_net_map.get(pad_name)
+        if net_name is None:
+            continue
+        _upsert_pad_net(child, net_number=net_numbers[net_name], net_name=net_name)
+
+    return serialize_sexpr(footprint_node, indent=2).splitlines()
+
+
+def _render_breakout_headers(
+    board: BreakoutBoard,
+    net_numbers: dict[str, int],
+) -> list[str]:
+    label_offset = _mm(max(board.config.header_offset_mm / 2.0, 2.0))
+    drill_size = _mm(board.config.header_drill_mm)
+    pad_size = _mm(board.config.header_pad_diameter_mm)
+
+    lines: list[str] = []
+    for index, header in enumerate(board.headers, start=1):
+        net_number = net_numbers[header.net]
+        lines.extend(
+            [
+                '  (footprint "EZProto:BreakoutPin"',
+                '    (layer "F.Cu")',
+                f"    (at {_mm(header.x)} {_mm(header.y)})",
+                "    (attr board_only exclude_from_pos_files exclude_from_bom)",
+                f'    (fp_text reference "J{index}" (at 0 -{label_offset}) (layer "F.SilkS") hide',
+                "      (effects (font (size 1 1) (thickness 0.15)))",
+                "    )",
+                f'    (fp_text value "{_escape_text(header.name)}" (at 0 0) (layer "F.Fab") hide',
+                "      (effects (font (size 1 1) (thickness 0.15)))",
+                "    )",
+                '    (pad "1" thru_hole circle',
+                "      (at 0 0)",
+                f"      (size {pad_size} {pad_size})",
+                f"      (drill {drill_size})",
+                '      (layers "*.Cu" "*.Mask")',
+                f'      (net {net_number} "{_escape_text(header.net)}")',
+                "    )",
+                "  )",
+            ]
+        )
+    return lines
+
+
+def _render_breakout_segments(
+    board: BreakoutBoard,
+    net_numbers: dict[str, int],
+) -> list[str]:
+    width = _mm(board.config.trace_width_mm)
+    lines: list[str] = []
+    for segment in board.traces:
+        lines.extend(
+            [
+                "  (segment",
+                f"    (start {_mm(segment.start_x)} {_mm(segment.start_y)})",
+                f"    (end {_mm(segment.end_x)} {_mm(segment.end_y)})",
+                f"    (width {width})",
+                '    (layer "F.Cu")',
+                f"    (net {net_numbers[segment.net]})",
+                "  )",
+            ]
+        )
+    return lines
+
+
+def _render_rect_outline(*, width_mm: float, height_mm: float) -> list[str]:
+    return [
+        "  (gr_rect",
+        "    (start 0 0)",
+        f"    (end {_mm(width_mm)} {_mm(height_mm)})",
+        "    (stroke",
+        "      (width 0.1)",
+        "      (type default)",
+        "    )",
+        "    (fill none)",
+        '    (layer "Edge.Cuts")',
+        "  )",
+    ]
+
+
 def _render_line(
     start_x: float,
     start_y: float,
@@ -241,6 +396,57 @@ def _render_arc(
     ]
 
 
+def _remove_children(node: list[Any], heads: set[str]) -> None:
+    node[:] = [
+        child
+        for child in node
+        if not (isinstance(child, list) and _node_head(child) in heads)
+    ]
+
+
+def _upsert_footprint_at(node: list[Any], *, x_pos: float, y_pos: float) -> None:
+    replacement = [atom("at"), atom(_mm(x_pos)), atom(_mm(y_pos))]
+    existing = _find_child(node, "at")
+    if existing is not None:
+        existing[:] = replacement
+        return
+    insert_index = 2 if len(node) >= 2 else len(node)
+    node.insert(insert_index, replacement)
+
+
+def _upsert_pad_net(node: list[Any], *, net_number: int, net_name: str) -> None:
+    replacement = [atom("net"), atom(str(net_number)), atom(net_name, quoted=True)]
+    existing = _find_child(node, "net")
+    if existing is not None:
+        existing[:] = replacement
+        return
+    node.append(replacement)
+
+
+def _find_child(node: list[Any], head: str) -> list[Any] | None:
+    for child in node:
+        if isinstance(child, list) and _node_head(child) == head:
+            return child
+    return None
+
+
+def _node_head(node: Any) -> str:
+    if not isinstance(node, list) or not node:
+        return ""
+    value = node[0]
+    return value.value if isinstance(value, Atom) else ""
+
+
+def _atom_value(node: Any) -> str:
+    if not isinstance(node, Atom):
+        raise TypeError("Expected a KiCad S-expression atom.")
+    return node.value
+
+
 def _mm(value: float) -> str:
     text = f"{value:.3f}".rstrip("0").rstrip(".")
     return text or "0"
+
+
+def _escape_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')

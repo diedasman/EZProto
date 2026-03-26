@@ -19,10 +19,11 @@ from textual.widgets import ( # type: ignore
     TabPane,
 )
 
+from ezproto.breakout import BreakoutBoard, BreakoutConfig, generate_breakout
 from ezproto.fabrication import write_fabrication_archive, write_fabrication_package
-from ezproto.kicad import write_kicad_pcb
+from ezproto.kicad import write_breakout_board, write_kicad_pcb
 from ezproto.models import BoardParameters
-from ezproto.preview import render_board_preview
+from ezproto.preview import render_board_preview, render_breakout_preview
 from ezproto.storage import (
     DEFAULT_THEME_NAME,
     UserProfile,
@@ -35,11 +36,20 @@ from ezproto.storage import (
     update_app_state,
 )
 
+WELCOME_ART_PATH = Path(__file__).resolve().parent / "welcome_art.txt"
+
 PITCH_PRESETS = {
     "pitch_1_00": "1.0",
     "pitch_2_00": "2.0",
     "pitch_2_54": "2.54",
     "pitch_5_08": "5.08",
+}
+
+BREAKOUT_PITCH_PRESETS = {
+    "breakout_pitch_1_00": "1.0",
+    "breakout_pitch_2_00": "2.0",
+    "breakout_pitch_2_54": "2.54",
+    "breakout_pitch_5_08": "5.08",
 }
 
 PROTO_INPUT_IDS = {
@@ -51,6 +61,23 @@ PROTO_INPUT_IDS = {
     "pad_diameter",
     "mount_hole",
     "edge_margin",
+}
+
+BREAKOUT_INPUT_IDS = {
+    "breakout_board_name",
+    "breakout_footprint_path",
+    "breakout_board_width",
+    "breakout_board_height",
+    "breakout_pitch",
+    "breakout_header_offset",
+    "breakout_margin",
+}
+
+BREAKOUT_CHECKBOX_IDS = {
+    "breakout_side_n",
+    "breakout_side_e",
+    "breakout_side_s",
+    "breakout_side_w",
 }
 
 
@@ -74,7 +101,21 @@ class ProtoboardApp(App[None]):
     # Board Properties and Controls Widget Rendering:
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent(initial="protoboard", id="main_tabs"):
+        with TabbedContent(initial="welcome", id="main_tabs"):
+
+            with TabPane("WELCOME", id="welcome"):
+                with Container(id="welcome_layout"):
+                    with Vertical(id="welcome_panel", classes="panel"):
+
+                        welcome_art = WELCOME_ART_PATH.read_text(encoding="utf-8")
+                        yield Static(welcome_art, id="welcome_art")
+                        
+                        yield Static(
+                            "Use the tabs above to get started. Select SETTINGS to manage users and preferences.",
+                            id="welcome_instructions",
+                        )
+
+
             with TabPane("PROTOBOARD", id="protoboard"):
                 with Container(id="protoboard_layout"):
                     with Vertical(id="parameters_panel", classes="panel"):
@@ -152,6 +193,71 @@ class ProtoboardApp(App[None]):
                         yield Static(id="board_preview")
                         yield Static(id="proto_status", classes="status_box")
 
+            with TabPane("BREAKOUT", id="breakout"):
+                with Container(id="breakout_layout"):
+                    with Vertical(id="breakout_parameters_panel", classes="panel"):
+                        with Container(id="breakout_form"):
+                            yield Label("Board name", classes="field_label")
+                            yield Input(
+                                id="breakout_board_name",
+                                placeholder="Defaults to the footprint name",
+                            )
+
+                            yield Label("Footprint path", classes="field_label")
+                            yield Input(
+                                id="breakout_footprint_path",
+                                placeholder="Path to a .kicad_mod file or folder",
+                            )
+
+                            yield Label("Board width (mm)", classes="field_label")
+                            yield Input(id="breakout_board_width", placeholder="Board width")
+
+                            yield Label("Board height (mm)", classes="field_label")
+                            yield Input(id="breakout_board_height", placeholder="Board height")
+
+                            yield Label("Pitch (mm)", classes="field_label")
+                            # yield Input(id="breakout_pitch", placeholder="Header pitch")
+
+                            with Horizontal(id="pitch_controls"):
+                                yield Input(id="breakout_pitch", placeholder="Custom")
+
+                                yield Button("1 mm", id="breakout_pitch_1_00", classes="pitch_preset")
+                                yield Button("2 mm", id="breakout_pitch_2_00", classes="pitch_preset")
+                                yield Button("2.54 mm", id="breakout_pitch_2_54", classes="pitch_preset")
+                                yield Button("5.08 mm", id="breakout_pitch_5_08", classes="pitch_preset")
+                            
+
+                            yield Label("Header offset (mm)", classes="field_label")
+                            yield Input(
+                                id="breakout_header_offset",
+                                placeholder="Distance from board edge to header center",
+                            )
+
+                            yield Label("Side margin (mm)", classes="field_label")
+                            yield Input(
+                                id="breakout_margin",
+                                placeholder="Corner clearance for header placement",
+                            )
+
+                            yield Label("Header sides", classes="field_label")
+                            with Horizontal(id="breakout_side_controls"):
+                                yield Checkbox("North", id="breakout_side_n", value=True)
+                                yield Checkbox("East", id="breakout_side_e")
+                                yield Checkbox("South", id="breakout_side_s", value=True)
+                                yield Checkbox("West", id="breakout_side_w")
+
+                        with Horizontal(id="breakout_buttons", classes="button_row"):
+                            yield Button(
+                                "Generate Breakout",
+                                variant="primary",
+                                id="generate_breakout",
+                            )
+
+                    with Vertical(id="breakout_summary_panel", classes="panel"):
+                        yield Static(id="breakout_summary")
+                        yield Static(id="breakout_preview")
+                        yield Static(id="breakout_status", classes="status_box")
+
             with TabPane("ENCLOSURE", id="enclosure"):
                 pass
 
@@ -204,12 +310,17 @@ class ProtoboardApp(App[None]):
     def on_mount(self) -> None:
         self.query_one("#parameters_panel", Vertical).border_title = "Board Parameters"
         self.query_one("#summary_panel", Vertical).border_title = "Board Summary"
+        self.query_one("#breakout_parameters_panel", Vertical).border_title = "Breakout Inputs"
+        self.query_one("#breakout_summary_panel", Vertical).border_title = "Breakout Summary"
         self.query_one("#users_panel", Vertical).border_title = "Users"
         self.query_one("#active_user_panel", Vertical).border_title = "Active User"
         self.query_one("#create_user_panel", Vertical).border_title = "Create User"
         self.query_one("#board_preview", Static).border_title = "Board Preview"
+        self.query_one("#breakout_preview", Static).border_title = "Breakout Preview"
         self.query_one("#summary", Static).border_title = "Board Details"
+        self.query_one("#breakout_summary", Static).border_title = "Breakout Details"
         self.query_one("#proto_status", Static).border_title = "Status"
+        self.query_one("#breakout_status", Static).border_title = "Status"
         self.query_one("#include_drill", Checkbox).value = True
         self._set_dfm_option_controls_enabled(
             self.query_one("#generate_gerbers", Checkbox).value
@@ -218,13 +329,20 @@ class ProtoboardApp(App[None]):
         self._refresh_user_list()
         self._restore_last_user()
         self._refresh_preview()
+        self._refresh_breakout_preview()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id in PITCH_PRESETS:
             self._apply_pitch_preset(PITCH_PRESETS[event.button.id])
             return
+        if event.button.id in BREAKOUT_PITCH_PRESETS:
+            self._apply_breakout_pitch_preset(BREAKOUT_PITCH_PRESETS[event.button.id])
+            return
         if event.button.id == "generate":
             self.action_generate()
+            return
+        if event.button.id == "generate_breakout":
+            self.action_generate_breakout()
             return
         if event.button.id == "show_create_user":
             self._toggle_create_user_form(True)
@@ -245,11 +363,17 @@ class ProtoboardApp(App[None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in PROTO_INPUT_IDS:
             self._refresh_preview()
+            return
+        if event.input.id in BREAKOUT_INPUT_IDS:
+            self._refresh_breakout_preview()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "generate_gerbers":
             self._set_dfm_option_controls_enabled(event.checkbox.value)
             self._refresh_preview()
+            return
+        if event.checkbox.id in BREAKOUT_CHECKBOX_IDS:
+            self._refresh_breakout_preview()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if self._syncing_controls:
@@ -393,6 +517,49 @@ class ProtoboardApp(App[None]):
 
         self._set_proto_status(f"PCB written to {written_file}", error=False)
 
+    def action_generate_breakout(self) -> None:
+        try:
+            config = self._read_breakout_config()
+            board = generate_breakout(config)
+        except ValueError as error:
+            self._set_breakout_status(str(error), error=True)
+            return
+
+        if self.active_user is None:
+            self._set_breakout_status(
+                "Select or create a user in SETTINGS before generating files.",
+                error=True,
+            )
+            return
+
+        try:
+            written_file = write_breakout_board(
+                config.output_path_for(self.active_user.default_output_directory),
+                board,
+            )
+        except OSError as error:
+            self._set_breakout_status(f"Unable to write PCB file: {error}", error=True)
+            return
+
+        board_details = self._build_breakout_board_details(board, pcb_path=written_file)
+
+        metadata_error: OSError | None = None
+        try:
+            self._record_generated_board(board.config.board_name, board_details)
+        except OSError as error:
+            metadata_error = error
+
+        self._refresh_breakout_preview()
+
+        if metadata_error is not None:
+            self._set_breakout_status(
+                f"PCB written to {written_file}, but metadata update failed: {metadata_error}",
+                error=True,
+            )
+            return
+
+        self._set_breakout_status(f"PCB written to {written_file}", error=False)
+
     def _read_parameters(self) -> BoardParameters:
         return BoardParameters(
             board_name=self._value("board_name") or "Protoboard",
@@ -407,6 +574,36 @@ class ProtoboardApp(App[None]):
             ),
             edge_margin_mm=self._parse_float("Edge margin", self._value("edge_margin")),
             rounded_corner_radius_mm=self._read_rounded_corner_radius(),
+        )
+
+    def _read_breakout_config(self) -> BreakoutConfig:
+        footprint_path = self._value("breakout_footprint_path").strip()
+        if not footprint_path:
+            raise ValueError("Footprint path is required.")
+
+        return BreakoutConfig(
+            board_name=self._value("breakout_board_name"),
+            footprint_path=Path(footprint_path),
+            board_width_mm=self._parse_float(
+                "Board width",
+                self._value("breakout_board_width"),
+            ),
+            board_height_mm=self._parse_float(
+                "Board height",
+                self._value("breakout_board_height"),
+            ),
+            pitch_mm=self._parse_float("Pitch", self._value("breakout_pitch")),
+            sides=self._selected_breakout_sides(),
+            header_offset_mm=self._parse_optional_float(
+                "Header offset",
+                self._value("breakout_header_offset"),
+                default=2.0,
+            ),
+            margin_mm=self._parse_optional_float(
+                "Side margin",
+                self._value("breakout_margin"),
+                default=2.0,
+            ),
         )
 
     def _refresh_preview(self) -> None:
@@ -492,6 +689,65 @@ class ProtoboardApp(App[None]):
         )
         preview.update(render_board_preview(parameters))
 
+    def _refresh_breakout_preview(self) -> None:
+        summary = self.query_one("#breakout_summary", Static)
+        preview = self.query_one("#breakout_preview", Static)
+        status = self.query_one("#breakout_status", Static)
+
+        try:
+            config = self._read_breakout_config()
+            board = generate_breakout(config)
+        except ValueError as error:
+            summary.update(f"Waiting for valid breakout inputs.\n\n{error}")
+            preview.update("...")
+            status.remove_class("success")
+            status.remove_class("error")
+            status.update("...")
+            return
+
+        footprint = board.footprint
+        side_label = ", ".join(config.sides)
+
+        if self.active_user is None:
+            active_user_name = "None"
+            output_root = "No active user"
+            output_path = "Select or create a user in SETTINGS."
+        else:
+            active_user_name = self.active_user.name
+            output_root = self.active_user.default_output_directory
+            output_path = str(config.output_path_for(self.active_user.default_output_directory))
+
+        summary.update(
+            "\n".join(
+                [
+                    f"Active user: {active_user_name}",
+                    f"Footprint: {footprint.path}",
+                    f"Footprint name: {footprint.name}",
+                    f"Logical pads: {len(footprint.pads)}",
+                    f"Physical pads: {footprint.physical_pad_count}",
+                    (
+                        "Footprint bounds: "
+                        f"{footprint.bounds.width_mm:.2f} mm x {footprint.bounds.height_mm:.2f} mm"
+                    ),
+                    (
+                        "Board size: "
+                        f"{config.board_width_mm:.2f} mm x {config.board_height_mm:.2f} mm"
+                    ),
+                    f"Pitch: {config.pitch_mm:.2f} mm",
+                    f"Sides: {side_label}",
+                    f"Header offset: {config.header_offset_mm:.2f} mm",
+                    f"Side margin: {config.margin_mm:.2f} mm",
+                    f"Headers: {len(board.headers)}",
+                    f"Trace segments: {len(board.traces)}",
+                    f"Output root: {output_root}",
+                    f"Board folder: {config.output_directory_name}",
+                    f"Output file: {config.output_file_name}",
+                    f"Resolved path: {output_path}",
+                ]
+            )
+        )
+        preview.update(render_breakout_preview(board))
+
     def _activate_user(
         self,
         profile: UserProfile | None,
@@ -527,6 +783,7 @@ class ProtoboardApp(App[None]):
                 )
                 self._set_active_user_controls_enabled(False)
                 self._refresh_preview()
+                self._refresh_breakout_preview()
                 return
 
             theme_name = self._coerce_theme_name(profile.theme)
@@ -566,6 +823,7 @@ class ProtoboardApp(App[None]):
             )
 
         self._refresh_preview()
+        self._refresh_breakout_preview()
 
     def _restore_last_user(self) -> None:
         state = load_app_state()
@@ -697,11 +955,28 @@ class ProtoboardApp(App[None]):
         pitch_input.value = value
         self._refresh_preview()
 
+    def _apply_breakout_pitch_preset(self, value: str) -> None:
+        pitch_input = self.query_one("#breakout_pitch", Input)
+        pitch_input.value = value
+        self._refresh_breakout_preview()
+
     def _read_rounded_corner_radius(self) -> float:
         value = self.query_one("#rounded_corners", Select).value
         if value == Select.BLANK:
             return 0.0
         return float(value)
+
+    def _selected_breakout_sides(self) -> tuple[str, ...]:
+        sides: list[str] = []
+        if self.query_one("#breakout_side_n", Checkbox).value:
+            sides.append("N")
+        if self.query_one("#breakout_side_e", Checkbox).value:
+            sides.append("E")
+        if self.query_one("#breakout_side_s", Checkbox).value:
+            sides.append("S")
+        if self.query_one("#breakout_side_w", Checkbox).value:
+            sides.append("W")
+        return tuple(sides)
 
     def _build_board_details(
         self,
@@ -749,6 +1024,40 @@ class ProtoboardApp(App[None]):
             "generated_at": current_timestamp(),
         }
 
+    def _build_breakout_board_details(
+        self,
+        board: BreakoutBoard,
+        *,
+        pcb_path: Path,
+    ) -> dict[str, object]:
+        side_label = ",".join(board.config.sides)
+        summary = (
+            f"{board.footprint.name}, "
+            f"{len(board.pads)} logical pads, "
+            f"{board.config.pitch_mm:.2f} mm pitch, "
+            f"{board.config.board_width_mm:.2f} mm x {board.config.board_height_mm:.2f} mm board"
+        )
+        return {
+            "board_name": board.config.board_name,
+            "board_type": "breakout",
+            "summary": summary,
+            "footprint_name": board.footprint.name,
+            "footprint_file": str(board.footprint.path),
+            "logical_pad_count": len(board.pads),
+            "physical_pad_count": board.footprint.physical_pad_count,
+            "header_count": len(board.headers),
+            "trace_segment_count": len(board.traces),
+            "board_width_mm": board.config.board_width_mm,
+            "board_height_mm": board.config.board_height_mm,
+            "pitch_mm": board.config.pitch_mm,
+            "header_offset_mm": board.config.header_offset_mm,
+            "margin_mm": board.config.margin_mm,
+            "sides": list(board.config.sides),
+            "sides_label": side_label,
+            "output_file": str(pcb_path),
+            "generated_at": current_timestamp(),
+        }
+
     def _record_generated_board(
         self,
         board_name: str,
@@ -773,6 +1082,13 @@ class ProtoboardApp(App[None]):
     def _set_proto_status(self, message: str, *, error: bool) -> None:
         self._update_status_widget(
             self.query_one("#proto_status", Static),
+            message,
+            error=error,
+        )
+
+    def _set_breakout_status(self, message: str, *, error: bool) -> None:
+        self._update_status_widget(
+            self.query_one("#breakout_status", Static),
             message,
             error=error,
         )
@@ -809,6 +1125,16 @@ class ProtoboardApp(App[None]):
         value = raw_value.strip()
         if not value:
             raise ValueError(f"{label} is required.")
+        try:
+            return float(value)
+        except ValueError as error:
+            raise ValueError(f"{label} must be a number.") from error
+
+    @staticmethod
+    def _parse_optional_float(label: str, raw_value: str, *, default: float) -> float:
+        value = raw_value.strip()
+        if not value:
+            return default
         try:
             return float(value)
         except ValueError as error:

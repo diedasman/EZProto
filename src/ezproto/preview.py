@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ezproto.breakout.models import BreakoutBoard
 from ezproto.models import BoardParameters
 
 MAX_PREVIEW_COLUMNS = 14
@@ -27,6 +28,29 @@ def render_board_preview(parameters: BoardParameters) -> str:
             f"{parameters.columns} cols x {parameters.rows} rows"
             f" | pitch {parameters.pitch_mm:g} mm"
             f" | corners {_corner_label(parameters)}"
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def render_breakout_preview(board: BreakoutBoard) -> str:
+    """Render a small textual breakout-board summary."""
+
+    side_counts = {side: 0 for side in ("N", "E", "S", "W")}
+    for header in board.headers:
+        side_counts[header.side] += 1
+
+    inner = "footprint".center(18)
+    lines = [
+        f"      N:{side_counts['N']}",
+        "   +" + ("-" * 20) + "+",
+        f"W:{side_counts['W']:<2} | {inner} | E:{side_counts['E']:>2}",
+        "   +" + ("-" * 20) + "+",
+        f"      S:{side_counts['S']}",
+        (
+            f"{len(board.pads)} pads"
+            f" | {board.config.board_width_mm:g} x {board.config.board_height_mm:g} mm"
+            f" | pitch {board.config.pitch_mm:g} mm"
         ),
     ]
     return "\n".join(lines)

@@ -9,6 +9,8 @@ import subprocess
 import sys
 from typing import Sequence
 
+GENERATED_METADATA_PREFIXES = ("src/ezproto.egg-info/",)
+
 
 class UpdateError(RuntimeError):
     """Raised when EZProto cannot update itself safely."""
@@ -29,6 +31,7 @@ def update_installation() -> UpdateResult:
 
     git_executable = _require_git()
     repository_root = find_repository_root(git_executable)
+    _restore_generated_metadata(git_executable, repository_root)
     _ensure_clean_checkout(git_executable, repository_root)
 
     previous_revision = _git_output(
@@ -120,16 +123,64 @@ def _ensure_clean_checkout(git_executable: str, repository_root: Path) -> None:
         "status",
         "--porcelain",
     )
-    tracked_changes = [
-        line
-        for line in status_output.splitlines()
-        if line.strip() and not line.startswith("??")
-    ]
+    tracked_changes = _tracked_status_lines(status_output)
     if tracked_changes:
         raise UpdateError(
             "Update cancelled because the EZProto checkout has local changes. "
             "Commit or stash them before running `ezproto update`."
         )
+
+
+def _restore_generated_metadata(git_executable: str, repository_root: Path) -> None:
+    status_output = _git_output(
+        git_executable,
+        repository_root,
+        "status",
+        "--porcelain",
+    )
+    generated_paths = sorted(
+        {
+            path
+            for line in _tracked_status_lines(status_output)
+            if _is_generated_metadata_path(path := _status_path(line))
+        }
+    )
+    if not generated_paths:
+        return
+
+    _run_command(
+        [
+            git_executable,
+            "-C",
+            str(repository_root),
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            *generated_paths,
+        ],
+        description="reset generated packaging metadata",
+    )
+
+
+def _tracked_status_lines(status_output: str) -> list[str]:
+    return [
+        line
+        for line in status_output.splitlines()
+        if line.strip() and not line.startswith("??")
+    ]
+
+
+def _status_path(status_line: str) -> str:
+    path = status_line[3:]
+    if " -> " in path:
+        return path.split(" -> ", 1)[1]
+    return path
+
+
+def _is_generated_metadata_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in GENERATED_METADATA_PREFIXES)
 
 
 def _git_output(git_executable: str, repository_root: Path, *args: str) -> str:

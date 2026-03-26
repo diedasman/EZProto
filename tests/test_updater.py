@@ -38,7 +38,7 @@ class UpdateInstallationTests(unittest.TestCase):
             ):
                 with mock.patch(
                     "ezproto.updater._git_output",
-                    side_effect=["", "abc1234", "abc1234"],
+                    side_effect=["", "", "abc1234", "abc1234"],
                 ):
                     with mock.patch(
                         "ezproto.updater._run_command",
@@ -70,7 +70,12 @@ class UpdateInstallationTests(unittest.TestCase):
             ):
                 with mock.patch(
                     "ezproto.updater._git_output",
-                    side_effect=["?? Demo Board/\n?? output/test1/\n", "abc1234", "abc1234"],
+                    side_effect=[
+                        "?? Demo Board/\n?? output/test1/\n",
+                        "?? Demo Board/\n?? output/test1/\n",
+                        "abc1234",
+                        "abc1234",
+                    ],
                 ):
                     with mock.patch(
                         "ezproto.updater._run_command",
@@ -86,6 +91,57 @@ class UpdateInstallationTests(unittest.TestCase):
             description="download the latest EZProto changes",
         )
 
+    def test_update_restores_generated_metadata_before_pulling(self) -> None:
+        repository_root = Path("C:/EZProto")
+
+        with mock.patch("ezproto.updater._require_git", return_value="git"):
+            with mock.patch(
+                "ezproto.updater.find_repository_root",
+                return_value=repository_root,
+            ):
+                with mock.patch(
+                    "ezproto.updater._git_output",
+                    side_effect=[
+                        " M src/ezproto.egg-info/SOURCES.txt\n M src/ezproto.egg-info/requires.txt\n",
+                        "",
+                        "abc1234",
+                        "abc1234",
+                    ],
+                ):
+                    with mock.patch(
+                        "ezproto.updater._run_command",
+                        return_value="Already up to date.",
+                    ) as run_command:
+                        result = update_installation()
+
+        self.assertFalse(result.updated)
+        self.assertEqual(run_command.call_count, 2)
+        self.assertEqual(
+            run_command.call_args_list[0],
+            mock.call(
+                [
+                    "git",
+                    "-C",
+                    str(repository_root),
+                    "restore",
+                    "--source=HEAD",
+                    "--staged",
+                    "--worktree",
+                    "--",
+                    "src/ezproto.egg-info/SOURCES.txt",
+                    "src/ezproto.egg-info/requires.txt",
+                ],
+                description="reset generated packaging metadata",
+            ),
+        )
+        self.assertEqual(
+            run_command.call_args_list[1],
+            mock.call(
+                ["git", "-C", str(repository_root), "pull", "--ff-only"],
+                description="download the latest EZProto changes",
+            ),
+        )
+
     def test_update_reinstalls_after_new_commit_is_pulled(self) -> None:
         repository_root = Path("C:/EZProto")
 
@@ -96,7 +152,7 @@ class UpdateInstallationTests(unittest.TestCase):
             ):
                 with mock.patch(
                     "ezproto.updater._git_output",
-                    side_effect=["", "oldrev1", "newrev2"],
+                    side_effect=["", "", "oldrev1", "newrev2"],
                 ):
                     with mock.patch(
                         "ezproto.updater._run_command",

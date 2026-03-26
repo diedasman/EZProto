@@ -1,2 +1,0 @@
-[console_scripts]
-ezproto = ezproto.__main__:main

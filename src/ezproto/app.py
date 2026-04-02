@@ -20,10 +20,15 @@ from textual.widgets import ( # type: ignore
 )
 
 from ezproto.breakout import BreakoutBoard, BreakoutConfig, generate_breakout
+from ezproto.breakout.footprint_parser import load_footprint
 from ezproto.fabrication import write_fabrication_archive, write_fabrication_package
 from ezproto.kicad import write_breakout_board, write_kicad_pcb
 from ezproto.models import BoardParameters
-from ezproto.preview import render_board_preview, render_breakout_preview
+from ezproto.preview import (
+    render_board_preview,
+    render_breakout_preview,
+    render_footprint_preview,
+)
 from ezproto.storage import (
     DEFAULT_THEME_NAME,
     UserProfile,
@@ -52,6 +57,21 @@ BREAKOUT_PITCH_PRESETS = {
     "breakout_pitch_5_08": "5.08",
 }
 
+BREAKOUT_TRACE_WIDTH_PRESETS = {
+    "breakout_trace_0_20": "0.20",
+    "breakout_trace_0_25": "0.25",
+    "breakout_trace_0_30": "0.30",
+    "breakout_trace_0_50": "0.50",
+}
+
+ROUNDED_CORNER_OPTIONS = [
+    ("1 mm", "1"),
+    ("2 mm", "2"),
+    ("3 mm", "3"),
+    ("4 mm", "4"),
+    ("5 mm", "5"),
+]
+
 PROTO_INPUT_IDS = {
     "board_name",
     "columns",
@@ -69,6 +89,7 @@ BREAKOUT_INPUT_IDS = {
     "breakout_board_width",
     "breakout_board_height",
     "breakout_pitch",
+    "breakout_trace_width",
     "breakout_header_offset",
     "breakout_margin",
 }
@@ -78,6 +99,12 @@ BREAKOUT_CHECKBOX_IDS = {
     "breakout_side_e",
     "breakout_side_s",
     "breakout_side_w",
+}
+
+BREAKOUT_DFM_CHECKBOX_IDS = {
+    "breakout_generate_gerbers",
+    "breakout_include_drill",
+    "breakout_zip_output",
 }
 
 
@@ -105,15 +132,62 @@ class ProtoboardApp(App[None]):
 
             with TabPane("WELCOME", id="welcome"):
                 with Container(id="welcome_layout"):
-                    with Vertical(id="welcome_panel", classes="panel"):
+                    with Horizontal(id="welcome_panel"):
 
                         welcome_art = WELCOME_ART_PATH.read_text(encoding="utf-8")
-                        yield Static(welcome_art, id="welcome_art")
-                        
-                        yield Static(
-                            "Use the tabs above to get started. Select SETTINGS to manage users and preferences.",
-                            id="welcome_instructions",
-                        )
+
+                        with Vertical(id="welcome_logo_column"):
+                            yield Static(welcome_art, id="welcome_art")
+
+                        with Vertical(id="welcome_message_column"):
+                            yield Static(
+                                (
+                                    "EZProto is a keyboard-friendly workspace for protoboards, "
+                                    "breakouts, and fabrication exports."
+                                ),
+                                id="welcome_intro",
+                            )
+
+                            yield Static(
+                                (
+                                    "+---------------+\n"
+                                    "|      Tab      |\n"
+                                    "|   (+ Shift)   |\n"
+                                    "+---------------+\n\n"
+                                    "Press Tab to cycle through the main sections of the app: PROTOBOARD, BREAKOUT, KEYBOARD, ENCLOSURE, and SETTINGS.\n"
+                                    "Press Shift+Tab to cycle backwards."
+                                ),
+                                id="welcome_navigation",
+                            )
+
+                            yield Static(
+                                (
+                                    "+-------+   +-------+\n"
+                                    "| Left  |   | Right |\n"
+                                    "|  <-   |   |  ->   |\n"
+                                    "+-------+   +-------+\n\n"
+                                    "Press the Left and Right arrow keys to move between tabs."
+                                ),
+                                id="welcome_tab_navigation",
+                            )
+
+                            yield Static(
+                                (
+                                    "Open SETTINGS first to choose the active user and output folder.\n"
+                                    "Use PROTOBOARD or BREAKOUT to define a board.\n"
+                                    "Press Ctrl+G when you are ready to generate files."
+                                ),
+                                id="welcome_getting_started",
+                            )
+
+                            yield Static(
+                                (
+                                    "Ctrl+G  Generate the current board\n"
+                                    "Ctrl+Q  Quit EZProto\n"
+                                    "Tab labels at the top show the current workspace."
+                                ),
+                                id="welcome_shortcuts",
+                            )
 
 
             with TabPane("PROTOBOARD", id="protoboard"):
@@ -125,11 +199,12 @@ class ProtoboardApp(App[None]):
                             yield Input(placeholder="Protoboard", id="board_name")
 
                             yield Label("Columns", classes="field_label")
-                            yield Input(id="columns", placeholder="Number of columns")
-
-                            yield Label("Rows", classes="field_label")
-                            yield Input(id="rows", placeholder="Number of rows")
-
+                            with Horizontal(id="dimensions_row"):
+                                # yield Label("Columns", classes="field_label")
+                                yield Input(id="columns", placeholder="Number of columns")
+                                yield Label("Rows", classes="field_label")
+                                yield Input(id="rows", placeholder="Number of rows")
+                                
                             yield Label("Pitch (mm)", classes="field_label")
                             
                             with Horizontal(id="pitch_controls"):
@@ -154,13 +229,7 @@ class ProtoboardApp(App[None]):
 
                             yield Label("Rounded corners", classes="field_label")
                             yield Select[str](
-                                [
-                                    ("1 mm", "1"),
-                                    ("2 mm", "2"),
-                                    ("3 mm", "3"),
-                                    ("4 mm", "4"),
-                                    ("5 mm", "5"),
-                                ],
+                                ROUNDED_CORNER_OPTIONS,
                                 prompt="Square corners",
                                 id="rounded_corners",
                             )
@@ -197,66 +266,119 @@ class ProtoboardApp(App[None]):
                 with Container(id="breakout_layout"):
                     with Vertical(id="breakout_parameters_panel", classes="panel"):
                         with Container(id="breakout_form"):
-                            yield Label("Board name", classes="field_label")
-                            yield Input(
-                                id="breakout_board_name",
-                                placeholder="Defaults to the footprint name",
-                            )
-
-                            yield Label("Footprint path", classes="field_label")
-                            yield Input(
-                                id="breakout_footprint_path",
-                                placeholder="Path to a .kicad_mod file or folder",
-                            )
-
-                            yield Label("Board width (mm)", classes="field_label")
-                            yield Input(id="breakout_board_width", placeholder="Board width")
-
-                            yield Label("Board height (mm)", classes="field_label")
-                            yield Input(id="breakout_board_height", placeholder="Board height")
-
-                            yield Label("Pitch (mm)", classes="field_label")
-                            # yield Input(id="breakout_pitch", placeholder="Header pitch")
-
-                            with Horizontal(id="pitch_controls"):
-                                yield Input(id="breakout_pitch", placeholder="Custom")
-
-                                yield Button("1 mm", id="breakout_pitch_1_00", classes="pitch_preset")
-                                yield Button("2 mm", id="breakout_pitch_2_00", classes="pitch_preset")
-                                yield Button("2.54 mm", id="breakout_pitch_2_54", classes="pitch_preset")
-                                yield Button("5.08 mm", id="breakout_pitch_5_08", classes="pitch_preset")
                             
+                            with Horizontal(id="breakout_footprint_row"):
+                                yield Label("Footprint path", classes="field_label")
+                                yield Input(
+                                    id="breakout_footprint_path",
+                                    placeholder="Path to a .kicad_mod file or folder",
+                                )
+                            
+                            with Horizontal(id="breakout_dimensions_row"):
+                                yield Label("Board width", classes="field_label")
+                                yield Input(id="breakout_board_width", placeholder="Width (mm)")
+                                yield Label("Board height", classes="field_label")
+                                yield Input(id="breakout_board_height", placeholder="Height (mm)")
 
-                            yield Label("Header offset (mm)", classes="field_label")
-                            yield Input(
-                                id="breakout_header_offset",
-                                placeholder="Distance from board edge to header center",
-                            )
+                            with Horizontal(id="breakout_pitch_row"):
+                                yield Label("Pitch (mm)", classes="field_label")
 
-                            yield Label("Side margin (mm)", classes="field_label")
-                            yield Input(
-                                id="breakout_margin",
-                                placeholder="Corner clearance for header placement",
-                            )
+                                with Horizontal(id="breakout_pitch_controls"):
+                                    yield Input(id="breakout_pitch", placeholder="Custom")
 
-                            yield Label("Header sides", classes="field_label")
-                            with Horizontal(id="breakout_side_controls"):
-                                yield Checkbox("North", id="breakout_side_n", value=True)
-                                yield Checkbox("East", id="breakout_side_e")
-                                yield Checkbox("South", id="breakout_side_s", value=True)
-                                yield Checkbox("West", id="breakout_side_w")
+                                    yield Button("1 mm", id="breakout_pitch_1_00", classes="pitch_preset")
+                                    yield Button("2 mm", id="breakout_pitch_2_00", classes="pitch_preset")
+                                    yield Button("2.54 mm", id="breakout_pitch_2_54", classes="pitch_preset")
+                                    yield Button("5.08 mm", id="breakout_pitch_5_08", classes="pitch_preset")
 
-                        with Horizontal(id="breakout_buttons", classes="button_row"):
-                            yield Button(
-                                "Generate Breakout",
-                                variant="primary",
-                                id="generate_breakout",
-                            )
+                            
+                            with Horizontal(id="breakout_trace_width_row"):
+                                yield Label("Trace width (mm)", classes="field_label")
+
+                                with Horizontal(id="breakout_trace_width_controls"):
+
+                                    yield Input(id="breakout_trace_width", placeholder="Custom")
+                                    yield Button("0.20 mm", id="breakout_trace_0_20", classes="trace_preset")
+                                    yield Button("0.25 mm", id="breakout_trace_0_25", classes="trace_preset")
+                                    yield Button("0.30 mm", id="breakout_trace_0_30", classes="trace_preset")
+                                    yield Button("0.50 mm", id="breakout_trace_0_50", classes="trace_preset")
+
+                            with Horizontal(id="breakout_offsets_row"):
+                                yield Label("Header", classes="field_label")
+                                yield Input(
+                                    id="breakout_header_offset",
+                                    placeholder="Offset (mm)",
+                                )
+                                yield Label("Side margin", classes="field_label")
+                                yield Input(
+                                    id="breakout_margin",
+                                    placeholder="Margin (mm)",
+                                )
+
+                            with Horizontal(id="breakout_sides_row"):
+                                yield Label("Header sides", classes="field_label")
+
+                                with Horizontal(id="breakout_side_controls"):
+                                    yield Checkbox("North", id="breakout_side_n", value=True)
+                                    yield Checkbox("East", id="breakout_side_e")
+                                    yield Checkbox("South", id="breakout_side_s", value=True)
+                                    yield Checkbox("West", id="breakout_side_w")
+
+                            with Horizontal(id="breakout_rounded_corners_row"):
+                                yield Label("Rounded corners", classes="field_label")
+                                yield Select[str](
+                                    ROUNDED_CORNER_OPTIONS,
+                                    prompt="Square corners",
+                                    id="breakout_rounded_corners",
+                                )
+
+                            with Horizontal(id="breakout_dfm_options_row"):
+                                yield Label("DFM export", classes="field_label")
+                                with Horizontal(id="breakout_dfm_options"):
+                                    yield Checkbox("Generate Gerbers", id="breakout_generate_gerbers")
+                                    yield Checkbox(
+                                        "Include drill file",
+                                        id="breakout_include_drill",
+                                        classes="dfm_option",
+                                    )
+                                    yield Checkbox(
+                                        ".ZIP archive",
+                                        id="breakout_zip_output",
+                                        classes="dfm_option",
+                                    )
+                            
+                            with Horizontal(id="output_controls_row"):
+                                yield Label("Board name", classes="field_label")
+                                with Horizontal(id="breakout_output_controls"):
+                                    yield Input(
+                                        id="breakout_board_name",
+                                        placeholder="Defaults to the footprint name",
+                                    )
+                                    yield Button(
+                                        "Generate Breakout",
+                                        variant="primary",
+                                        id="generate_breakout",
+                                    )
 
                     with Vertical(id="breakout_summary_panel", classes="panel"):
                         yield Static(id="breakout_summary")
-                        yield Static(id="breakout_preview")
+                        yield Static(id="breakout_footprint_summary")
+                        with Horizontal(id="breakout_preview_row"):
+                            yield Static(id="breakout_footprint_preview")
+                            yield Static(id="breakout_preview")
                         yield Static(id="breakout_status", classes="status_box")
+
+            with TabPane("KEYBOARD", id="keyboard"):
+                with Container(id="keyboard_layout"):
+                    with Vertical(id="keyboard_panel", classes="panel"):
+                        
+                        yield Label("Board name", classes="field_label")
+                        yield Input(placeholder="Keyboard Board", id="keyboard_board_name")
+                        yield Static("Keyboard layout generation coming soon!", id="keyboard_placeholder")
+
+                    with Vertical(id="keyboard_summary_panel", classes="panel"):
+                        yield Static(id="keyboard_summary")
+
 
             with TabPane("ENCLOSURE", id="enclosure"):
                 pass
@@ -315,19 +437,31 @@ class ProtoboardApp(App[None]):
         self.query_one("#users_panel", Vertical).border_title = "Users"
         self.query_one("#active_user_panel", Vertical).border_title = "Active User"
         self.query_one("#create_user_panel", Vertical).border_title = "Create User"
+        self.query_one("#welcome_intro", Static).border_title = "Welcome"
+        self.query_one("#welcome_navigation", Static).border_title = "Tab Navigation"
+        self.query_one("#welcome_getting_started", Static).border_title = "Getting Started"
+        self.query_one("#welcome_shortcuts", Static).border_title = "Quick Keys"
         self.query_one("#board_preview", Static).border_title = "Board Preview"
+        self.query_one("#breakout_summary", Static).border_title = "Breakout Details"
+        self.query_one("#breakout_footprint_summary", Static).border_title = "Footprint Details"
+        self.query_one("#breakout_footprint_preview", Static).border_title = "Footprint Preview"
         self.query_one("#breakout_preview", Static).border_title = "Breakout Preview"
         self.query_one("#summary", Static).border_title = "Board Details"
-        self.query_one("#breakout_summary", Static).border_title = "Breakout Details"
         self.query_one("#proto_status", Static).border_title = "Status"
         self.query_one("#breakout_status", Static).border_title = "Status"
         self.query_one("#include_drill", Checkbox).value = True
+        self.query_one("#breakout_include_drill", Checkbox).value = True
+        self.query_one("#breakout_trace_width", Input).value = "0.25"
         self._set_dfm_option_controls_enabled(
             self.query_one("#generate_gerbers", Checkbox).value
+        )
+        self._set_breakout_dfm_option_controls_enabled(
+            self.query_one("#breakout_generate_gerbers", Checkbox).value
         )
         self._set_active_user_controls_enabled(False)
         self._refresh_user_list()
         self._restore_last_user()
+        self._sync_breakout_trace_width_preset_state()
         self._refresh_preview()
         self._refresh_breakout_preview()
 
@@ -337,6 +471,11 @@ class ProtoboardApp(App[None]):
             return
         if event.button.id in BREAKOUT_PITCH_PRESETS:
             self._apply_breakout_pitch_preset(BREAKOUT_PITCH_PRESETS[event.button.id])
+            return
+        if event.button.id in BREAKOUT_TRACE_WIDTH_PRESETS:
+            self._apply_breakout_trace_width_preset(
+                BREAKOUT_TRACE_WIDTH_PRESETS[event.button.id]
+            )
             return
         if event.button.id == "generate":
             self.action_generate()
@@ -365,6 +504,8 @@ class ProtoboardApp(App[None]):
             self._refresh_preview()
             return
         if event.input.id in BREAKOUT_INPUT_IDS:
+            if event.input.id == "breakout_trace_width":
+                self._sync_breakout_trace_width_preset_state()
             self._refresh_breakout_preview()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
@@ -372,7 +513,14 @@ class ProtoboardApp(App[None]):
             self._set_dfm_option_controls_enabled(event.checkbox.value)
             self._refresh_preview()
             return
+        if event.checkbox.id == "breakout_generate_gerbers":
+            self._set_breakout_dfm_option_controls_enabled(event.checkbox.value)
+            self._refresh_breakout_preview()
+            return
         if event.checkbox.id in BREAKOUT_CHECKBOX_IDS:
+            self._refresh_breakout_preview()
+            return
+        if event.checkbox.id in BREAKOUT_DFM_CHECKBOX_IDS:
             self._refresh_breakout_preview()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -381,6 +529,10 @@ class ProtoboardApp(App[None]):
 
         if event.select.id == "rounded_corners":
             self._refresh_preview()
+            return
+
+        if event.select.id == "breakout_rounded_corners":
+            self._refresh_breakout_preview()
             return
 
         if event.select.id == "user_select":
@@ -448,6 +600,7 @@ class ProtoboardApp(App[None]):
                     dfm_directory,
                     parameters,
                     include_drill=include_drill,
+                    pcb_path=written_file,
                 )
             except OSError as error:
                 fabrication_error = error
@@ -541,7 +694,56 @@ class ProtoboardApp(App[None]):
             self._set_breakout_status(f"Unable to write PCB file: {error}", error=True)
             return
 
-        board_details = self._build_breakout_board_details(board, pcb_path=written_file)
+        generate_gerbers = self.query_one("#breakout_generate_gerbers", Checkbox).value
+        include_drill = (
+            generate_gerbers
+            and self.query_one("#breakout_include_drill", Checkbox).value
+        )
+        zip_output = (
+            generate_gerbers
+            and self.query_one("#breakout_zip_output", Checkbox).value
+        )
+        dfm_directory = written_file.parent / f"{config.output_file_stem}_DFM"
+        archive_path = written_file.parent / f"{config.output_file_stem}_DFM.zip"
+
+        fabrication_files: list[Path] = []
+        written_archive: Path | None = None
+        fabrication_error: OSError | None = None
+        archive_error: OSError | None = None
+
+        if generate_gerbers:
+            try:
+                fabrication_files = write_fabrication_package(
+                    dfm_directory,
+                    config,
+                    include_drill=include_drill,
+                    pcb_path=written_file,
+                )
+            except OSError as error:
+                fabrication_error = error
+
+            if zip_output and fabrication_error is None:
+                try:
+                    written_archive = write_fabrication_archive(
+                        archive_path,
+                        fabrication_files,
+                        root_directory_name=dfm_directory.name,
+                    )
+                except OSError as error:
+                    archive_error = error
+
+        board_details = self._build_breakout_board_details(
+            board,
+            pcb_path=written_file,
+            gerbers_requested=generate_gerbers,
+            gerbers_generated=generate_gerbers and fabrication_error is None,
+            dfm_directory=dfm_directory if generate_gerbers else None,
+            fabrication_files=[str(path) for path in fabrication_files],
+            drill_included=include_drill,
+            zip_requested=zip_output,
+            zip_generated=zip_output and fabrication_error is None and archive_error is None,
+            zip_archive=written_archive,
+        )
 
         metadata_error: OSError | None = None
         try:
@@ -551,10 +753,35 @@ class ProtoboardApp(App[None]):
 
         self._refresh_breakout_preview()
 
+        if fabrication_error is not None:
+            self._set_breakout_status(
+                f"PCB written to {written_file}, but DFM export failed: {fabrication_error}",
+                error=True,
+            )
+            return
+
+        if archive_error is not None:
+            self._set_breakout_status(
+                f"PCB written to {written_file}; DFM files written to {dfm_directory}, "
+                f"but ZIP archive failed: {archive_error}",
+                error=True,
+            )
+            return
+
         if metadata_error is not None:
             self._set_breakout_status(
                 f"PCB written to {written_file}, but metadata update failed: {metadata_error}",
                 error=True,
+            )
+            return
+
+        if generate_gerbers:
+            output_messages = [f"DFM files written to {dfm_directory}"]
+            if written_archive is not None:
+                output_messages.append(f"ZIP archive written to {written_archive}")
+            self._set_breakout_status(
+                f"PCB written to {written_file}; " + "; ".join(output_messages),
+                error=False,
             )
             return
 
@@ -604,6 +831,12 @@ class ProtoboardApp(App[None]):
                 self._value("breakout_margin"),
                 default=2.0,
             ),
+            trace_width_mm=self._parse_optional_float(
+                "Trace width",
+                self._value("breakout_trace_width"),
+                default=0.25,
+            ),
+            rounded_corner_radius_mm=self._read_breakout_rounded_corner_radius(),
         )
 
     def _refresh_preview(self) -> None:
@@ -690,9 +923,41 @@ class ProtoboardApp(App[None]):
         preview.update(render_board_preview(parameters))
 
     def _refresh_breakout_preview(self) -> None:
+        footprint_preview = self.query_one("#breakout_footprint_preview", Static)
+        footprint_summary = self.query_one("#breakout_footprint_summary", Static)
         summary = self.query_one("#breakout_summary", Static)
         preview = self.query_one("#breakout_preview", Static)
         status = self.query_one("#breakout_status", Static)
+
+        footprint_path = self._value("breakout_footprint_path").strip()
+        footprint = None
+
+        if not footprint_path:
+            footprint_preview.update("Select a footprint to preview its pads and bounds.")
+            footprint_summary.update("Waiting for valid footprint input.\n\nFootprint path is required.")
+        else:
+            try:
+                footprint = load_footprint(Path(footprint_path))
+            except ValueError as error:
+                footprint_preview.update(f"Waiting for a valid footprint.\n\n{error}")
+                footprint_summary.update(f"Waiting for valid footprint input.\n\n{error}")
+            else:
+                footprint_preview.update(render_footprint_preview(footprint))
+                footprint_summary.update(
+                    "\n".join(
+                        [
+                            f"Footprint: {footprint.path}",
+                            f"Footprint name: {footprint.name}",
+                            f"Logical pads: {len(footprint.pads)}",
+                            f"Physical pads: {footprint.physical_pad_count}",
+                            f"NPTH ignored: {footprint.npth_pad_count}",
+                            (
+                                "Footprint bounds: "
+                                f"{footprint.bounds.width_mm:.2f} mm x {footprint.bounds.height_mm:.2f} mm"
+                            ),
+                        ]
+                    )
+                )
 
         try:
             config = self._read_breakout_config()
@@ -707,42 +972,63 @@ class ProtoboardApp(App[None]):
 
         footprint = board.footprint
         side_label = ", ".join(config.sides)
+        corner_style = (
+            f"{config.rounded_corner_radius_mm:.2f} mm radius"
+            if config.has_rounded_corners
+            else "Square corners"
+        )
+        if self.query_one("#breakout_generate_gerbers", Checkbox).value:
+            fabrication_parts = ["Gerbers"]
+            if self.query_one("#breakout_include_drill", Checkbox).value:
+                fabrication_parts.append("drill")
+            if self.query_one("#breakout_zip_output", Checkbox).value:
+                fabrication_parts.append("zip")
+            fabrication_label = " + ".join(fabrication_parts)
+        else:
+            fabrication_label = "PCB only"
 
         if self.active_user is None:
             active_user_name = "None"
             output_root = "No active user"
             output_path = "Select or create a user in SETTINGS."
+            dfm_path = "Enable DFM export to create Gerbers and drill files."
+            archive_output = "Enable DFM export to create a ZIP archive."
         else:
             active_user_name = self.active_user.name
             output_root = self.active_user.default_output_directory
             output_path = str(config.output_path_for(self.active_user.default_output_directory))
+            dfm_path = str(
+                config.output_path_for(self.active_user.default_output_directory).parent
+                / f"{config.output_file_stem}_DFM"
+            )
+            archive_output = str(
+                config.output_path_for(self.active_user.default_output_directory).parent
+                / f"{config.output_file_stem}_DFM.zip"
+            )
 
         summary.update(
             "\n".join(
                 [
                     f"Active user: {active_user_name}",
-                    f"Footprint: {footprint.path}",
-                    f"Footprint name: {footprint.name}",
-                    f"Logical pads: {len(footprint.pads)}",
-                    f"Physical pads: {footprint.physical_pad_count}",
-                    (
-                        "Footprint bounds: "
-                        f"{footprint.bounds.width_mm:.2f} mm x {footprint.bounds.height_mm:.2f} mm"
-                    ),
                     (
                         "Board size: "
                         f"{config.board_width_mm:.2f} mm x {config.board_height_mm:.2f} mm"
                     ),
                     f"Pitch: {config.pitch_mm:.2f} mm",
+                    f"Trace width: {config.trace_width_mm:.2f} mm",
                     f"Sides: {side_label}",
                     f"Header offset: {config.header_offset_mm:.2f} mm",
                     f"Side margin: {config.margin_mm:.2f} mm",
+                    f"Corners: {corner_style}",
                     f"Headers: {len(board.headers)}",
                     f"Trace segments: {len(board.traces)}",
+                    f"Fabrication: {fabrication_label}",
                     f"Output root: {output_root}",
                     f"Board folder: {config.output_directory_name}",
                     f"Output file: {config.output_file_name}",
                     f"Resolved path: {output_path}",
+                    f"DFM directory: {dfm_path}",
+                    f"ZIP archive: {archive_output}",
                 ]
             )
         )
@@ -960,11 +1246,41 @@ class ProtoboardApp(App[None]):
         pitch_input.value = value
         self._refresh_breakout_preview()
 
+    def _apply_breakout_trace_width_preset(self, value: str) -> None:
+        trace_input = self.query_one("#breakout_trace_width", Input)
+        trace_input.value = value
+        self._sync_breakout_trace_width_preset_state()
+        self._refresh_breakout_preview()
+
     def _read_rounded_corner_radius(self) -> float:
         value = self.query_one("#rounded_corners", Select).value
         if value == Select.BLANK:
             return 0.0
         return float(value)
+
+    def _read_breakout_rounded_corner_radius(self) -> float:
+        value = self.query_one("#breakout_rounded_corners", Select).value
+        if value == Select.BLANK:
+            return 0.0
+        return float(value)
+
+    def _sync_breakout_trace_width_preset_state(self) -> None:
+        raw_value = self.query_one("#breakout_trace_width", Input).value.strip()
+        for button_id, preset in BREAKOUT_TRACE_WIDTH_PRESETS.items():
+            button = self.query_one(f"#{button_id}", Button)
+            if self._numeric_strings_match(raw_value, preset):
+                button.add_class("preset_active")
+            else:
+                button.remove_class("preset_active")
+
+    @staticmethod
+    def _numeric_strings_match(raw_value: str, preset: str) -> bool:
+        if not raw_value:
+            return False
+        try:
+            return abs(float(raw_value) - float(preset)) < 1e-9
+        except ValueError:
+            return False
 
     def _selected_breakout_sides(self) -> tuple[str, ...]:
         sides: list[str] = []
@@ -1029,6 +1345,14 @@ class ProtoboardApp(App[None]):
         board: BreakoutBoard,
         *,
         pcb_path: Path,
+        gerbers_requested: bool,
+        gerbers_generated: bool,
+        dfm_directory: Path | None,
+        fabrication_files: list[str],
+        drill_included: bool,
+        zip_requested: bool,
+        zip_generated: bool,
+        zip_archive: Path | None,
     ) -> dict[str, object]:
         side_label = ",".join(board.config.sides)
         summary = (
@@ -1045,16 +1369,27 @@ class ProtoboardApp(App[None]):
             "footprint_file": str(board.footprint.path),
             "logical_pad_count": len(board.pads),
             "physical_pad_count": board.footprint.physical_pad_count,
+            "npth_pad_count": board.footprint.npth_pad_count,
             "header_count": len(board.headers),
             "trace_segment_count": len(board.traces),
             "board_width_mm": board.config.board_width_mm,
             "board_height_mm": board.config.board_height_mm,
             "pitch_mm": board.config.pitch_mm,
+            "trace_width_mm": board.config.trace_width_mm,
             "header_offset_mm": board.config.header_offset_mm,
             "margin_mm": board.config.margin_mm,
+            "rounded_corner_radius_mm": board.config.rounded_corner_radius_mm,
             "sides": list(board.config.sides),
             "sides_label": side_label,
             "output_file": str(pcb_path),
+            "gerbers_requested": gerbers_requested,
+            "gerbers_generated": gerbers_generated,
+            "dfm_directory": str(dfm_directory) if dfm_directory is not None else "",
+            "fabrication_files": fabrication_files,
+            "drill_included": drill_included,
+            "zip_requested": zip_requested,
+            "zip_generated": zip_generated,
+            "zip_archive": str(zip_archive) if zip_archive is not None else "",
             "generated_at": current_timestamp(),
         }
 
@@ -1148,6 +1483,10 @@ class ProtoboardApp(App[None]):
     def _set_dfm_option_controls_enabled(self, enabled: bool) -> None:
         self.query_one("#include_drill", Checkbox).disabled = not enabled
         self.query_one("#zip_output", Checkbox).disabled = not enabled
+
+    def _set_breakout_dfm_option_controls_enabled(self, enabled: bool) -> None:
+        self.query_one("#breakout_include_drill", Checkbox).disabled = not enabled
+        self.query_one("#breakout_zip_output", Checkbox).disabled = not enabled
 
     def _theme_options(self) -> list[tuple[str, str]]:
         return [(name, name) for name in sorted(self.available_themes.keys())]

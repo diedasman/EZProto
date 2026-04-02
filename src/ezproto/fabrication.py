@@ -1,68 +1,111 @@
-"""Simple Gerber and drill generation for EZProto boards."""
+"""Gerber and drill generation utilities backed by KiCad CLI."""
 
 from __future__ import annotations
 
-from math import cos, pi, sin
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+from typing import Protocol
 import zipfile
 
+from ezproto.kicad import write_kicad_pcb
 from ezproto.models import BoardParameters
 
-GERBER_FORMAT_SCALE = 1000000
-GERBER_COORD_WIDTH = 10
-OUTLINE_STROKE_MM = 0.15
-MASK_EXPANSION_MM = 0.1
+KICAD_CLI_ENV_VAR = "EZPROTO_KICAD_CLI"
+KICAD_WINDOWS_GLOB = "*/bin/kicad-cli.exe"
+GERBER_LAYER_SPECS: tuple[tuple[str, str], ...] = (
+    ("F.Cu", "F_Cu"),
+    ("B.Cu", "B_Cu"),
+    ("F.Mask", "F_Mask"),
+    ("B.Mask", "B_Mask"),
+    ("F.Paste", "F_Paste"),
+    ("B.Paste", "B_Paste"),
+    ("F.SilkS", "F_Silkscreen"),
+    ("B.SilkS", "B_Silkscreen"),
+    ("Edge.Cuts", "Edge_Cuts"),
+)
+
+
+class _FabricationBoardSpec(Protocol):
+    @property
+    def output_file_stem(self) -> str: ...
+
+    @property
+    def output_file_name(self) -> str: ...
 
 
 def write_fabrication_package(
     destination_directory: Path | str,
-    parameters: BoardParameters,
+    parameters: BoardParameters | _FabricationBoardSpec,
     *,
     include_drill: bool = True,
+    pcb_path: Path | str | None = None,
+    kicad_cli_path: Path | str | None = None,
 ) -> list[Path]:
-    """Write a minimal Gerber/drill package for the generated board."""
+    """Generate Gerbers and an optional drill file using KiCad CLI."""
 
     output_directory = Path(destination_directory).expanduser()
     output_directory.mkdir(parents=True, exist_ok=True)
 
+    source_pcb, temporary_source_directory = _resolve_source_board_path(
+        output_directory=output_directory,
+        parameters=parameters,
+        pcb_path=pcb_path,
+    )
+    cli_path = _resolve_kicad_cli(kicad_cli_path)
+
     stem = parameters.output_file_stem
-    file_contents = {
-        f"{stem}_F_Cu.gbr": _render_flash_layer(
-            parameters,
-            layer_name="F.Cu",
-            aperture_diameter_mm=parameters.pad_diameter_mm,
-        ),
-        f"{stem}_B_Cu.gbr": _render_flash_layer(
-            parameters,
-            layer_name="B.Cu",
-            aperture_diameter_mm=parameters.pad_diameter_mm,
-        ),
-        f"{stem}_F_Mask.gbr": _render_flash_layer(
-            parameters,
-            layer_name="F.Mask",
-            aperture_diameter_mm=parameters.pad_diameter_mm + MASK_EXPANSION_MM,
-        ),
-        f"{stem}_B_Mask.gbr": _render_flash_layer(
-            parameters,
-            layer_name="B.Mask",
-            aperture_diameter_mm=parameters.pad_diameter_mm + MASK_EXPANSION_MM,
-        ),
-        f"{stem}_F_Paste.gbr": _render_empty_layer("F.Paste"),
-        f"{stem}_B_Paste.gbr": _render_empty_layer("B.Paste"),
-        f"{stem}_F_Silkscreen.gbr": _render_empty_layer("F.Silkscreen"),
-        f"{stem}_B_Silkscreen.gbr": _render_empty_layer("B.Silkscreen"),
-        f"{stem}_Edge_Cuts.gbr": _render_outline_layer(parameters),
-    }
-    if include_drill:
-        file_contents[f"{stem}.drl"] = _render_drill_file(parameters)
+    _remove_stale_outputs(output_directory, stem=stem)
 
-    written_files: list[Path] = []
-    for file_name, contents in file_contents.items():
-        path = output_directory / file_name
-        path.write_text(contents, encoding="utf-8")
-        written_files.append(path.resolve())
+    gerber_layers = ",".join(layer_name for layer_name, _ in GERBER_LAYER_SPECS)
+    try:
+        _run_kicad_cli(
+            cli_path,
+            [
+                "pcb",
+                "export",
+                "gerbers",
+                "--output",
+                str(output_directory),
+                "--layers",
+                gerber_layers,
+                "--no-protel-ext",
+            ],
+            source_pcb=source_pcb,
+        )
 
-    return written_files
+        if include_drill:
+            _run_kicad_cli(
+                cli_path,
+                [
+                    "pcb",
+                    "export",
+                    "drill",
+                    "--output",
+                    str(output_directory),
+                    "--format",
+                    "excellon",
+                    "--drill-origin",
+                    "absolute",
+                    "--excellon-units",
+                    "mm",
+                ],
+                source_pcb=source_pcb,
+            )
+
+        return _collect_outputs(
+            output_directory,
+            stem=stem,
+            include_drill=include_drill,
+        )
+    finally:
+        if (
+            temporary_source_directory is not None
+            and temporary_source_directory.exists()
+        ):
+            shutil.rmtree(temporary_source_directory, ignore_errors=True)
 
 
 def write_fabrication_archive(
@@ -89,196 +132,167 @@ def write_fabrication_archive(
 
     return archive_path.resolve()
 
-
-def _render_flash_layer(
-    parameters: BoardParameters,
+def _resolve_source_board_path(
     *,
-    layer_name: str,
-    aperture_diameter_mm: float,
-) -> str:
-    lines = _gerber_header(
-        layer_name,
-        file_function=_layer_file_function(layer_name),
-    )
-    lines.extend(
-        [
-            f"%ADD10C,{aperture_diameter_mm:.4f}*%",
-            "D10*",
-        ]
-    )
-
-    for x_pos, y_pos in parameters.iter_pad_positions():
-        lines.append(f"X{_gerber_coord(x_pos)}Y{_gerber_coord(_fabrication_y(y_pos))}D03*")
-
-    lines.append("M02*")
-    return "\n".join(lines) + "\n"
-
-
-def _render_outline_layer(parameters: BoardParameters) -> str:
-    points = _outline_points(parameters)
-    lines = _gerber_header(
-        "Edge.Cuts",
-        file_function=_layer_file_function("Edge.Cuts"),
-    )
-    lines.extend(
-        [
-            f"%ADD10C,{OUTLINE_STROKE_MM:.4f}*%",
-            "D10*",
-        ]
-    )
-
-    start_x, start_y = points[0]
-    lines.append(
-        f"X{_gerber_coord(start_x)}Y{_gerber_coord(_fabrication_y(start_y))}D02*"
-    )
-    for point_x, point_y in points[1:]:
-        lines.append(
-            f"X{_gerber_coord(point_x)}Y{_gerber_coord(_fabrication_y(point_y))}D01*"
-        )
-
-    lines.append("M02*")
-    return "\n".join(lines) + "\n"
-
-
-def _render_empty_layer(layer_name: str) -> str:
-    lines = _gerber_header(
-        layer_name,
-        file_function=_layer_file_function(layer_name),
-    )
-    lines.append("M02*")
-    return "\n".join(lines) + "\n"
-
-
-def _render_drill_file(parameters: BoardParameters) -> str:
-    tool_map: dict[str, list[tuple[float, float]]] = {
-        "T01": list(parameters.iter_pad_positions()),
-    }
-    tool_sizes = {
-        "T01": parameters.pth_drill_mm,
-    }
-
-    if parameters.mounting_hole_diameter_mm > 0:
-        tool_map["T02"] = list(parameters.iter_mounting_hole_positions())
-        tool_sizes["T02"] = parameters.mounting_hole_diameter_mm
-
-    lines = [
-        "M48",
-        "; EZProto drill file",
-        "; FORMAT={absolute / metric / decimal}",
-        "FMAT,2",
-        "METRIC,TZ",
-    ]
-    for tool_name, diameter in tool_sizes.items():
-        lines.append(f"{tool_name}C{diameter:.4f}")
-    lines.extend(
-        [
-            "%",
-            # Excellon consumers do not always default to absolute coordinates.
-            # Declaring this explicitly keeps drill hits aligned with the copper flashes.
-            "G90",
-            "G05",
-        ]
-    )
-
-    for tool_name, positions in tool_map.items():
-        lines.append(tool_name)
-        for x_pos, y_pos in positions:
-            lines.append(
-                f"X{_drill_coord(x_pos)}Y{_drill_coord(_fabrication_y(y_pos))}"
+    output_directory: Path,
+    parameters: BoardParameters | _FabricationBoardSpec,
+    pcb_path: Path | str | None,
+) -> tuple[Path, Path | None]:
+    if pcb_path is None:
+        if not isinstance(parameters, BoardParameters):
+            raise OSError(
+                "A PCB source path is required when exporting fabrication files for this board type."
             )
-
-    lines.append("M30")
-    return "\n".join(lines) + "\n"
-
-
-def _gerber_header(layer_name: str, *, file_function: str) -> list[str]:
-    return [
-        f"G04 EZProto {layer_name}*",
-        "%FSLAX46Y46*%",
-        "%MOMM*%",
-        f"%TF.FileFunction,{file_function}*%",
-        "%TF.FilePolarity,Positive*%",
-        "%LPD*%",
-    ]
-
-
-def _layer_file_function(layer_name: str) -> str:
-    file_functions = {
-        "F.Cu": "Copper,L1,Top",
-        "B.Cu": "Copper,L2,Bottom",
-        "F.Mask": "Soldermask,Top",
-        "B.Mask": "Soldermask,Bottom",
-        "F.Paste": "Paste,Top",
-        "B.Paste": "Paste,Bottom",
-        "F.Silkscreen": "Legend,Top",
-        "B.Silkscreen": "Legend,Bottom",
-        "Edge.Cuts": "Profile,NP",
-    }
-    return file_functions[layer_name]
-
-
-def _outline_points(parameters: BoardParameters) -> list[tuple[float, float]]:
-    width = parameters.board_width_mm
-    height = parameters.board_height_mm
-    radius = parameters.rounded_corner_radius_mm
-
-    if radius <= 0:
-        return [
-            (0.0, 0.0),
-            (width, 0.0),
-            (width, height),
-            (0.0, height),
-            (0.0, 0.0),
-        ]
-
-    points: list[tuple[float, float]] = [
-        (radius, 0.0),
-        (width - radius, 0.0),
-        *_arc_points(width - radius, radius, radius, -90.0, 0.0),
-        (width, height - radius),
-        *_arc_points(width - radius, height - radius, radius, 0.0, 90.0),
-        (radius, height),
-        *_arc_points(radius, height - radius, radius, 90.0, 180.0),
-        (0.0, radius),
-        *_arc_points(radius, radius, radius, 180.0, 270.0),
-        (radius, 0.0),
-    ]
-    return points
-
-
-def _arc_points(
-    center_x: float,
-    center_y: float,
-    radius: float,
-    start_degrees: float,
-    end_degrees: float,
-    *,
-    steps: int = 8,
-) -> list[tuple[float, float]]:
-    points: list[tuple[float, float]] = []
-    for step in range(1, steps + 1):
-        fraction = step / steps
-        angle = start_degrees + ((end_degrees - start_degrees) * fraction)
-        radians = (angle * pi) / 180.0
-        points.append(
-            (
-                center_x + (cos(radians) * radius),
-                center_y + (sin(radians) * radius),
+        temporary_directory = Path(
+            tempfile.mkdtemp(
+                prefix=f"{parameters.output_file_stem}_",
+                dir=output_directory,
             )
         )
-    return points
+        generated_path = temporary_directory / parameters.output_file_name
+        return write_kicad_pcb(generated_path, parameters), temporary_directory
+
+    resolved = Path(pcb_path).expanduser().resolve()
+    if not resolved.exists():
+        raise OSError(f"PCB source file does not exist: {resolved}")
+    return resolved, None
 
 
-def _fabrication_y(value_mm: float) -> float:
-    return value_mm
+def _resolve_kicad_cli(explicit_path: Path | str | None) -> Path:
+    candidates: list[Path] = []
+
+    if explicit_path is not None:
+        candidates.append(Path(explicit_path).expanduser())
+
+    if env_path := os.environ.get(KICAD_CLI_ENV_VAR, "").strip():
+        candidates.append(Path(env_path).expanduser())
+
+    for executable in ("kicad-cli", "kicad-cli.exe"):
+        discovered = shutil.which(executable)
+        if discovered:
+            candidates.append(Path(discovered))
+
+    program_files = os.environ.get("ProgramFiles", "").strip()
+    if program_files:
+        kicad_root = Path(program_files) / "KiCad"
+        if kicad_root.exists():
+            versioned_candidates = sorted(
+                kicad_root.glob(KICAD_WINDOWS_GLOB),
+                key=_kicad_install_sort_key,
+                reverse=True,
+            )
+            candidates.extend(versioned_candidates)
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists():
+            return resolved
+
+    raise OSError(
+        "Unable to find KiCad CLI executable. Install KiCad, add `kicad-cli` to PATH, "
+        f"or set `{KICAD_CLI_ENV_VAR}`."
+    )
 
 
-def _gerber_coord(value_mm: float) -> str:
-    return f"{int(round(value_mm * GERBER_FORMAT_SCALE)):0{GERBER_COORD_WIDTH}d}"
+def _kicad_install_sort_key(path: Path) -> tuple[int, ...]:
+    # Expected shape: .../KiCad/<version>/bin/kicad-cli.exe
+    try:
+        version_text = path.parent.parent.name
+    except IndexError:
+        return (0,)
+    parts: list[int] = []
+    for part in version_text.split("."):
+        if not part.isdigit():
+            break
+        parts.append(int(part))
+    return tuple(parts) or (0,)
 
 
-def _drill_coord(value_mm: float) -> str:
-    text = f"{value_mm:.4f}".rstrip("0").rstrip(".")
-    if "." not in text:
-        return f"{text}.0"
-    return text
+def _remove_stale_outputs(
+    output_directory: Path,
+    *,
+    stem: str,
+) -> None:
+    for _, layer_suffix in GERBER_LAYER_SPECS:
+        for stale_path in (
+            output_directory / f"{stem}_{layer_suffix}.gbr",
+            output_directory / f"{stem}-{layer_suffix}.gbr",
+        ):
+            if stale_path.exists():
+                stale_path.unlink()
+
+    drill_path = output_directory / f"{stem}.drl"
+    if drill_path.exists():
+        drill_path.unlink()
+
+    for job_path in (
+        output_directory / f"{stem}-job.gbrjob",
+        output_directory / f"{stem}_job.gbrjob",
+    ):
+        if job_path.exists():
+            job_path.unlink()
+
+
+def _run_kicad_cli(cli_path: Path, arguments: list[str], *, source_pcb: Path) -> None:
+    command = [str(cli_path), *arguments, str(source_pcb)]
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+
+    details = result.stderr.strip() or result.stdout.strip() or "unknown error"
+    raise OSError(
+        "KiCad CLI command failed: "
+        f"{' '.join(arguments)} ({details})"
+    )
+
+
+def _collect_outputs(
+    output_directory: Path,
+    *,
+    stem: str,
+    include_drill: bool,
+) -> list[Path]:
+    written_files: list[Path] = []
+    missing_files: list[str] = []
+
+    for _, layer_suffix in GERBER_LAYER_SPECS:
+        renamed_file = output_directory / f"{stem}_{layer_suffix}.gbr"
+        source_file = output_directory / f"{stem}-{layer_suffix}.gbr"
+
+        if source_file.exists():
+            source_file.replace(renamed_file)
+
+        if renamed_file.exists():
+            written_files.append(renamed_file.resolve())
+            continue
+
+        missing_files.append(renamed_file.name)
+
+    if include_drill:
+        drill_file = output_directory / f"{stem}.drl"
+        if drill_file.exists():
+            written_files.append(drill_file.resolve())
+        else:
+            missing_files.append(drill_file.name)
+
+    for job_path in (
+        output_directory / f"{stem}-job.gbrjob",
+        output_directory / f"{stem}_job.gbrjob",
+    ):
+        if job_path.exists():
+            job_path.unlink()
+
+    if missing_files:
+        missing_text = ", ".join(sorted(missing_files))
+        raise OSError(f"KiCad CLI did not produce expected fabrication files: {missing_text}")
+
+    return written_files

@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+import shutil
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ezproto.fabrication import write_fabrication_archive, write_fabrication_package
 from ezproto.models import BoardParameters
+
+
+def _kicad_cli_available() -> bool:
+    if shutil.which("kicad-cli") or shutil.which("kicad-cli.exe"):
+        return True
+    program_files = os.environ.get("ProgramFiles", "").strip()
+    if not program_files:
+        return False
+    return any((Path(program_files) / "KiCad").glob("*/bin/kicad-cli.exe"))
 
 
 def make_board(**overrides: object) -> BoardParameters:
@@ -29,6 +40,7 @@ def make_board(**overrides: object) -> BoardParameters:
     return BoardParameters(**values)
 
 
+@unittest.skipUnless(_kicad_cli_available(), "KiCad CLI is required for fabrication tests.")
 class FabricationPackageTests(unittest.TestCase):
     def test_write_fabrication_package_creates_expected_files(self) -> None:
         board = make_board()
@@ -52,7 +64,10 @@ class FabricationPackageTests(unittest.TestCase):
 
             self.assertEqual({path.name for path in written_files}, expected_names)
             self.assertTrue(dfm_directory.exists())
-            self.assertIn("EZProto F.Cu", (dfm_directory / "Demo_Board_F_Cu.gbr").read_text(encoding="utf-8"))
+            self.assertIn(
+                "%TF.GenerationSoftware,KiCad,Pcbnew,",
+                (dfm_directory / "Demo_Board_F_Cu.gbr").read_text(encoding="utf-8"),
+            )
             self.assertIn("M48", (dfm_directory / "Demo_Board.drl").read_text(encoding="utf-8"))
 
     def test_write_fabrication_package_can_skip_drill_file(self) -> None:
@@ -123,7 +138,7 @@ class FabricationPackageTests(unittest.TestCase):
             outline = (dfm_directory / "Demo_Board_Edge_Cuts.gbr").read_text(encoding="utf-8")
 
             self.assertIn("D02*", outline)
-            self.assertGreater(outline.count("D01*"), 8)
+            self.assertGreaterEqual(outline.count("G02*"), 1)
 
     def test_drill_file_declares_absolute_coordinates(self) -> None:
         board = make_board(mounting_hole_diameter_mm=0.0)
@@ -134,8 +149,8 @@ class FabricationPackageTests(unittest.TestCase):
             drill = (dfm_directory / "Demo_Board.drl").read_text(encoding="utf-8")
 
             self.assertIn("\nFMAT,2\n", drill)
-            self.assertIn("\nMETRIC,TZ\n", drill)
-            self.assertIn("\n%\nG90\nG05\nT01\n", drill)
+            self.assertIn("\nMETRIC\n", drill)
+            self.assertIn("\n%\nG90\nG05\nT1\n", drill)
 
     def test_fabrication_coordinates_use_positive_fixed_width_output(self) -> None:
         board = make_board(
@@ -155,8 +170,8 @@ class FabricationPackageTests(unittest.TestCase):
             drill = (dfm_directory / "Demo_Board.drl").read_text(encoding="utf-8")
             front_cu = (dfm_directory / "Demo_Board_F_Cu.gbr").read_text(encoding="utf-8")
 
-            self.assertIn("X0002000000Y0002000000D03*", front_cu)
-            self.assertIn("\nT01\nX2.0Y2.0\n", drill)
+            self.assertIn("X2000000Y-2000000D03*", front_cu)
+            self.assertIn("\nT1\nX2.0Y-2.0\n", drill)
 
     def test_gerbers_include_layer_attributes_and_mask_expansion(self) -> None:
         board = make_board(mounting_hole_diameter_mm=0.0)
@@ -173,14 +188,14 @@ class FabricationPackageTests(unittest.TestCase):
 
             self.assertIn("%TF.FileFunction,Copper,L1,Top*%", front_cu)
             self.assertIn("%TF.FilePolarity,Positive*%", front_cu)
-            self.assertIn("%ADD10C,1.9000*%", front_mask)
+            self.assertIn("%ADD10C,1.800000*%", front_mask)
             self.assertIn("%TF.FileFunction,Soldermask,Top*%", front_mask)
             self.assertIn("%TF.FileFunction,Paste,Top*%", front_paste)
             self.assertTrue(front_paste.rstrip().endswith("M02*"))
             self.assertIn("%TF.FileFunction,Legend,Top*%", front_silkscreen)
             self.assertTrue(front_silkscreen.rstrip().endswith("M02*"))
             self.assertIn("%TF.FileFunction,Profile,NP*%", outline)
-            self.assertIn("%ADD10C,0.1500*%", outline)
+            self.assertIn("%ADD10C,0.100000*%", outline)
 
 
 if __name__ == "__main__":

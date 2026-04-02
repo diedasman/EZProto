@@ -20,26 +20,24 @@ def generate_headers(pads: list[Pad] | tuple[Pad, ...], config: BreakoutConfig) 
         )
 
     allocations = _allocate_counts(len(pads), config.sides, capacities)
+    pad_groups = _assign_pads_to_sides(pads, allocations, config.sides)
     headers: list[HeaderPin] = []
-    pad_index = 0
 
     for side in config.sides:
-        count = allocations[side]
-        if count == 0:
+        assigned_pads = _sort_pads_for_side(pad_groups[side], side)
+        if not assigned_pads:
             continue
-        positions = _positions_for_side(side, count, config)
-        for offset in range(count):
-            pad = pads[pad_index + offset]
+        positions = _positions_for_side(side, len(assigned_pads), config)
+        for pad, (x_pos, y_pos) in zip(assigned_pads, positions):
             headers.append(
                 HeaderPin(
                     name=pad.name,
-                    x=positions[offset][0],
-                    y=positions[offset][1],
+                    x=x_pos,
+                    y=y_pos,
                     net=pad.net or f"PAD_{pad.name}",
                     side=side,
                 )
             )
-        pad_index += count
 
     return headers
 
@@ -81,6 +79,46 @@ def _allocate_counts(
             raise ValueError("Unable to allocate header pins across the selected sides.")
 
     return allocations
+
+
+def _assign_pads_to_sides(
+    pads: list[Pad] | tuple[Pad, ...],
+    allocations: dict[str, int],
+    sides: tuple[str, ...],
+) -> dict[str, list[Pad]]:
+    remaining = list(pads)
+    assignments = {side: [] for side in sides}
+    active_sides = [side for side in sides if allocations[side] > 0]
+
+    if not active_sides:
+        return assignments
+
+    for side in active_sides[:-1]:
+        target_count = allocations[side]
+        ranked = sorted(remaining, key=lambda pad: _side_affinity_key(pad, side))
+        chosen = ranked[:target_count]
+        assignments[side] = chosen
+        chosen_names = {pad.name for pad in chosen}
+        remaining = [pad for pad in remaining if pad.name not in chosen_names]
+
+    assignments[active_sides[-1]] = list(remaining)
+    return assignments
+
+
+def _side_affinity_key(pad: Pad, side: str) -> tuple[float, float, float, str]:
+    if side == "N":
+        return (pad.y, abs(pad.x), pad.x, pad.name)
+    if side == "S":
+        return (-pad.y, abs(pad.x), pad.x, pad.name)
+    if side == "E":
+        return (-pad.x, abs(pad.y), pad.y, pad.name)
+    return (pad.x, abs(pad.y), pad.y, pad.name)
+
+
+def _sort_pads_for_side(pads: list[Pad], side: str) -> list[Pad]:
+    if side in {"N", "S"}:
+        return sorted(pads, key=lambda pad: (pad.x, pad.y, pad.name))
+    return sorted(pads, key=lambda pad: (pad.y, pad.x, pad.name))
 
 
 def _positions_for_side(

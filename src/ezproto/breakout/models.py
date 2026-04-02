@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import hypot
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -24,9 +25,10 @@ class BreakoutConfig:
     header_drill_mm: float = 1.0
     header_pad_diameter_mm: float = 1.8
     trace_width_mm: float = 0.25
+    rounded_corner_radius_mm: float = 0.0
 
     def __post_init__(self) -> None:
-        footprint_path = Path(self.footprint_path).expanduser()
+        footprint_path = Path(_normalize_path_text(self.footprint_path)).expanduser()
         object.__setattr__(self, "footprint_path", footprint_path)
         object.__setattr__(
             self,
@@ -77,6 +79,41 @@ class BreakoutConfig:
     def output_path_for(self, base_directory: Path | str) -> Path:
         return Path(base_directory).expanduser() / self.output_path
 
+    @property
+    def has_rounded_corners(self) -> bool:
+        return self.rounded_corner_radius_mm > 0
+
+    @property
+    def trace_clearance_mm(self) -> float:
+        return max(0.2, self.trace_width_mm * 0.75)
+
+    @property
+    def route_spacing_mm(self) -> float:
+        return self.trace_width_mm + self.trace_clearance_mm
+
+    def point_is_inside_outline(self, point_x: float, point_y: float) -> bool:
+        if point_x < 0 or point_y < 0:
+            return False
+        if point_x > self.board_width_mm or point_y > self.board_height_mm:
+            return False
+
+        radius = self.rounded_corner_radius_mm
+        if radius <= 0:
+            return True
+
+        width = self.board_width_mm
+        height = self.board_height_mm
+
+        if point_x < radius and point_y < radius:
+            return hypot(point_x - radius, point_y - radius) <= radius
+        if point_x > width - radius and point_y < radius:
+            return hypot(point_x - (width - radius), point_y - radius) <= radius
+        if point_x < radius and point_y > height - radius:
+            return hypot(point_x - radius, point_y - (height - radius)) <= radius
+        if point_x > width - radius and point_y > height - radius:
+            return hypot(point_x - (width - radius), point_y - (height - radius)) <= radius
+        return True
+
     def validate(self) -> None:
         if self.board_width_mm <= 0:
             raise ValueError("Board width must be greater than 0 mm.")
@@ -96,6 +133,8 @@ class BreakoutConfig:
             raise ValueError("Header pad diameter must be larger than the drill size.")
         if self.trace_width_mm <= 0:
             raise ValueError("Trace width must be greater than 0 mm.")
+        if self.rounded_corner_radius_mm < 0:
+            raise ValueError("Rounded corner radius cannot be negative.")
         if self.board_width_mm <= 2 * self.header_offset_mm:
             raise ValueError("Board width must leave room for the header offset.")
         if self.board_height_mm <= 2 * self.header_offset_mm:
@@ -108,6 +147,8 @@ class BreakoutConfig:
             raise ValueError(
                 "Header offset must be large enough to keep the header holes on the board."
             )
+        if self.rounded_corner_radius_mm > min(self.board_width_mm, self.board_height_mm) / 2.0:
+            raise ValueError("Rounded corner radius is too large for the board size.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +213,7 @@ class ParsedFootprint:
     pads: tuple[Pad, ...]
     bounds: Bounds
     physical_pad_count: int
+    npth_pad_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,3 +235,10 @@ class BreakoutBoard:
             if pad.net and pad.net not in seen:
                 seen.append(pad.net)
         return tuple(seen)
+
+
+def _normalize_path_text(path: Path | str) -> str:
+    value = str(path).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1].strip()
+    return value

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import cos, pi, sin
 import re
 
 from .footprint_parser import load_footprint
@@ -30,7 +31,13 @@ def generate_breakout(config: BreakoutConfig) -> BreakoutBoard:
         for pad in footprint.pads
     )
     headers = tuple(generate_headers(placed_pads, config))
-    traces = tuple(route(placed_pads, headers))
+    traces = tuple(route(placed_pads, headers, config=config))
+    _validate_generated_geometry(
+        config=config,
+        pads=placed_pads,
+        headers=headers,
+        traces=traces,
+    )
 
     return BreakoutBoard(
         config=config,
@@ -62,8 +69,84 @@ def _validate_footprint_fits(
         raise ValueError(
             "Board height is too small to place the footprint with the requested margin."
         )
+    for point_x, point_y in (
+        (min_x, min_y),
+        (max_x, min_y),
+        (max_x, max_y),
+        (min_x, max_y),
+    ):
+        if not config.point_is_inside_outline(point_x, point_y):
+            raise ValueError(
+                "Rounded corners clip the footprint; reduce the corner radius "
+                "or increase the board dimensions."
+            )
 
 
 def _net_name(pad_name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", pad_name.strip())
     return f"PAD_{cleaned or 'UNNAMED'}"
+
+
+def _validate_generated_geometry(
+    *,
+    config: BreakoutConfig,
+    pads: tuple[Pad, ...],
+    headers,
+    traces,
+) -> None:
+    for pad in pads:
+        half_width = pad.width_mm / 2.0
+        half_height = pad.height_mm / 2.0
+        for point_x, point_y in (
+            (pad.x - half_width, pad.y - half_height),
+            (pad.x + half_width, pad.y - half_height),
+            (pad.x + half_width, pad.y + half_height),
+            (pad.x - half_width, pad.y + half_height),
+        ):
+            if not config.point_is_inside_outline(point_x, point_y):
+                raise ValueError(
+                    f"Rounded corners clip footprint pad '{pad.name}'."
+                )
+
+    header_radius = config.header_pad_diameter_mm / 2.0
+    for header in headers:
+        for point_x, point_y in _sample_circle(header.x, header.y, header_radius):
+            if not config.point_is_inside_outline(point_x, point_y):
+                raise ValueError(
+                    f"Rounded corners clip header pad '{header.name}'."
+                )
+
+    for trace in traces:
+        for point_x, point_y in _sample_trace(trace):
+            if not config.point_is_inside_outline(point_x, point_y):
+                raise ValueError(
+                    f"Trace '{trace.net}' extends beyond the board outline."
+                )
+
+
+def _sample_circle(
+    center_x: float,
+    center_y: float,
+    radius: float,
+    *,
+    steps: int = 24,
+) -> list[tuple[float, float]]:
+    return [
+        (
+            center_x + (cos((2 * pi * step) / steps) * radius),
+            center_y + (sin((2 * pi * step) / steps) * radius),
+        )
+        for step in range(steps)
+    ]
+
+
+def _sample_trace(trace, *, step_mm: float = 0.2) -> list[tuple[float, float]]:
+    length = max(abs(trace.end_x - trace.start_x), abs(trace.end_y - trace.start_y))
+    steps = max(int(length / step_mm), 1)
+    return [
+        (
+            trace.start_x + ((trace.end_x - trace.start_x) * (step / steps)),
+            trace.start_y + ((trace.end_y - trace.start_y) * (step / steps)),
+        )
+        for step in range(steps + 1)
+    ]

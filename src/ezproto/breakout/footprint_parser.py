@@ -30,12 +30,14 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
         raise ValueError(f"{footprint_path} is not a KiCad footprint file.")
 
     footprint_name = _atom_value(tree[1]) if len(tree) > 1 and isinstance(tree[1], Atom) else footprint_path.stem
-    physical_pads: list[tuple[str, float, float, float, float, int]] = []
+    physical_pads: list[tuple[str, float, float, float, float, int, bool]] = []
+    npth_pad_count = 0
 
     for child in tree[2:]:
         if _head(child) != "pad":
             continue
         name = _atom_value(child[1]) if len(child) > 1 and isinstance(child[1], Atom) else ""
+        pad_type = _pad_type(child)
         at_node = _find_child(child, "at")
         size_node = _find_child(child, "size")
         if at_node is None or len(at_node) < 3:
@@ -44,7 +46,20 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
         y_pos = _float_value(at_node[2], "pad y coordinate")
         width = _float_value(size_node[1], "pad width") if size_node and len(size_node) >= 3 else 0.0
         height = _float_value(size_node[2], "pad height") if size_node and len(size_node) >= 3 else width
-        physical_pads.append((name, x_pos, y_pos, width, height, len(physical_pads)))
+        pad_index = len(physical_pads)
+        physical_pads.append(
+            (
+                name,
+                x_pos,
+                y_pos,
+                width,
+                height,
+                pad_index,
+                pad_type != "np_thru_hole",
+            )
+        )
+        if pad_type == "np_thru_hole":
+            npth_pad_count += 1
 
     if not physical_pads:
         raise ValueError(f"{footprint_path} does not contain any pads.")
@@ -55,8 +70,8 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
     max_x = float("-inf")
     max_y = float("-inf")
 
-    for name, x_pos, y_pos, width, height, index in physical_pads:
-        if name not in logical_pads:
+    for name, x_pos, y_pos, width, height, index, is_routable in physical_pads:
+        if is_routable and name and name not in logical_pads:
             logical_pads[name] = (x_pos, y_pos, width, height, index)
         half_width = width / 2.0
         half_height = height / 2.0
@@ -80,6 +95,9 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
         )
     )
 
+    if not pads:
+        raise ValueError(f"{footprint_path} does not contain any routable pads.")
+
     return ParsedFootprint(
         path=footprint_path,
         name=footprint_name,
@@ -87,13 +105,14 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
         pads=pads,
         bounds=Bounds(min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y),
         physical_pad_count=len(physical_pads),
+        npth_pad_count=npth_pad_count,
     )
 
 
 def resolve_footprint_path(path: Path | str) -> Path:
     """Resolve a path to a concrete `.kicad_mod` file."""
 
-    candidate = Path(path).expanduser()
+    candidate = Path(_normalize_path_text(path)).expanduser()
     if not candidate.exists():
         raise ValueError(f"Footprint path does not exist: {candidate}")
     if candidate.is_file():
@@ -256,6 +275,19 @@ def _float_value(node: SExpr, label: str) -> float:
         return float(_atom_value(node))
     except (TypeError, ValueError) as error:
         raise ValueError(f"Invalid {label} in footprint file.") from error
+
+
+def _pad_type(node: list[SExpr]) -> str:
+    if len(node) < 3 or not isinstance(node[2], Atom):
+        return ""
+    return node[2].value.strip().lower()
+
+
+def _normalize_path_text(path: Path | str) -> str:
+    value = str(path).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1].strip()
+    return value
 
 
 def _pad_sort_key(name: str, index: int) -> tuple[int, int | str, int]:

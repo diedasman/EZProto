@@ -126,9 +126,10 @@ def render_breakout_board(board: BreakoutBoard) -> str:
     lines.extend(_render_breakout_headers(board, net_numbers))
     lines.extend(_render_breakout_segments(board, net_numbers))
     lines.extend(
-        _render_rect_outline(
+        _render_outline(
             width_mm=board.config.board_width_mm,
             height_mm=board.config.board_height_mm,
+            rounded_corner_radius_mm=board.config.rounded_corner_radius_mm,
         )
     )
     lines.append(")")
@@ -206,19 +207,30 @@ def _render_board_outline(
     width: str,
     height: str,
 ) -> list[str]:
-    if not parameters.has_rounded_corners:
-        return _render_rect_outline(width_mm=float(width), height_mm=float(height))
+    return _render_outline(
+        width_mm=float(width),
+        height_mm=float(height),
+        rounded_corner_radius_mm=parameters.rounded_corner_radius_mm,
+    )
 
-    radius = parameters.rounded_corner_radius_mm
-    board_width = parameters.board_width_mm
-    board_height = parameters.board_height_mm
+
+def _render_outline(
+    *,
+    width_mm: float,
+    height_mm: float,
+    rounded_corner_radius_mm: float,
+) -> list[str]:
+    if rounded_corner_radius_mm <= 0:
+        return _render_rect_outline(width_mm=width_mm, height_mm=height_mm)
+
+    radius = rounded_corner_radius_mm
     diagonal_offset = radius / sqrt(2)
 
     return [
-        *_render_line(radius, 0.0, board_width - radius, 0.0),
-        *_render_line(board_width, radius, board_width, board_height - radius),
-        *_render_line(board_width - radius, board_height, radius, board_height),
-        *_render_line(0.0, board_height - radius, 0.0, radius),
+        *_render_line(radius, 0.0, width_mm - radius, 0.0),
+        *_render_line(width_mm, radius, width_mm, height_mm - radius),
+        *_render_line(width_mm - radius, height_mm, radius, height_mm),
+        *_render_line(0.0, height_mm - radius, 0.0, radius),
         *_render_arc(
             0.0,
             radius,
@@ -228,28 +240,28 @@ def _render_board_outline(
             0.0,
         ),
         *_render_arc(
-            board_width - radius,
+            width_mm - radius,
             0.0,
-            board_width - radius + diagonal_offset,
+            width_mm - radius + diagonal_offset,
             radius - diagonal_offset,
-            board_width,
+            width_mm,
             radius,
         ),
         *_render_arc(
-            board_width,
-            board_height - radius,
-            board_width - radius + diagonal_offset,
-            board_height - radius + diagonal_offset,
-            board_width - radius,
-            board_height,
+            width_mm,
+            height_mm - radius,
+            width_mm - radius + diagonal_offset,
+            height_mm - radius + diagonal_offset,
+            width_mm - radius,
+            height_mm,
         ),
         *_render_arc(
             radius,
-            board_height,
+            height_mm,
             radius - diagonal_offset,
-            board_height - radius + diagonal_offset,
+            height_mm - radius + diagonal_offset,
             0.0,
-            board_height - radius,
+            height_mm - radius,
         ),
     ]
 

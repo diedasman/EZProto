@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+import shutil
 from unittest import mock
 import zipfile
 
@@ -17,6 +19,15 @@ from textual.widgets import Checkbox, Input, Select, Static
 
 from ezproto.app import ProtoboardApp
 from ezproto.storage import APP_DATA_ENV_VAR_NAME, DEFAULT_THEME_NAME, UserProfile, load_user_profile, save_user_profile
+
+
+def _kicad_cli_available() -> bool:
+    if shutil.which("kicad-cli") or shutil.which("kicad-cli.exe"):
+        return True
+    program_files = os.environ.get("ProgramFiles", "").strip()
+    if not program_files:
+        return False
+    return any((Path(program_files) / "KiCad").glob("*/bin/kicad-cli.exe"))
 
 
 def _project_root() -> Path:
@@ -41,6 +52,7 @@ def _next_test_board_name(output_root: Path) -> str:
     return f"test{highest_index + 1}"
 
 
+@unittest.skipUnless(_kicad_cli_available(), "KiCad CLI is required for app generation tests.")
 class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
     async def test_dfm_option_checkboxes_toggle_with_generate_gerbers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -65,7 +77,8 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(zip_output.disabled)
 
                     generate_gerbers.value = True
-                    await pilot.pause()
+                    for _ in range(3):
+                        await pilot.pause()
 
                     self.assertTrue(generate_gerbers.value)
                     self.assertFalse(include_drill.disabled)
@@ -73,7 +86,8 @@ class ProtoboardAppGenerationTests(unittest.IsolatedAsyncioTestCase):
 
                     zip_output.value = True
                     generate_gerbers.value = False
-                    await pilot.pause()
+                    for _ in range(3):
+                        await pilot.pause()
 
                     self.assertTrue(include_drill.disabled)
                     self.assertTrue(zip_output.disabled)

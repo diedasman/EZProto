@@ -10,7 +10,7 @@ from textual.widgets import ( # type: ignore
     Button,
     Checkbox,
     Footer,
-    Header,
+    # Header,
     Input,
     Label,
     Select,
@@ -127,7 +127,7 @@ class ProtoboardApp(App[None]):
 
     # Board Properties and Controls Widget Rendering:
     def compose(self) -> ComposeResult:
-        yield Header()
+        # yield Header()
         with TabbedContent(initial="welcome", id="main_tabs"):
 
             with TabPane("WELCOME", id="welcome"):
@@ -560,6 +560,7 @@ class ProtoboardApp(App[None]):
         if event.select.id == "theme_select" and self.active_user is not None:
             theme_name = self._coerce_theme_name(str(event.value))
             self.theme = theme_name
+            self._save_active_user_settings()
 
     def action_generate(self) -> None:
         try:

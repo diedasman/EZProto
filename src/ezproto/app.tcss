@@ -17,6 +17,7 @@ Screen {
 
 TabbedContent {
     height: 1fr;
+    margin-top: 1;
 }
 
 #welcome_layout {

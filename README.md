@@ -1,6 +1,6 @@
 # EZProto
 
-EZProto is a Textual-based desktop terminal app for generating simple parametric protoboards directly in KiCad's native `.kicad_pcb` format.
+EZProto is a Textual-based PCB tool that can run either as a native terminal app or as the same Textual app served in a browser via `ezproto --web`.
 
 ![EZProto](assets/home.png)
 
@@ -12,20 +12,26 @@ Right now the app is focused on the `PROTOBOARD` workflow:
 - Optionally export a simple Gerber + drill fabrication package
 - Save per-user defaults, theme choice, and generated-board history
 
-The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
+The `ENCLOSURE` and `KEYBOARD` tabs are present in the UI but intentionally empty for now.
 
 ![Settings](assets/user.png)
 
 ## Features
 
+- Dual launch modes:
+  - Native Textual terminal UI via `ezproto`
+  - Browser mode via `ezproto --web`
 - Native KiCad PCB output in text-based `.kicad_pcb` format
 - Parametric board sizing from rows, columns, pitch, and margins
 - PTH drill and pad diameter control
 - Optional corner mounting holes
 - Optional rounded corners with geometry validation
 - Terminal-friendly board preview inside the app
+- Browser mode via `textual-serve` with automatic browser launch
 - User profiles and app state stored in a per-user EZProto data directory
 - Optional DFM export with Gerber, drill, and ZIP packaging options
+- `Make it with PCBWay!` shortcut to PCBWay Quick Quote
+- `Reset form` confirmation flow before clearing protoboard inputs
 
 ![Example KiCAD Output](assets/protoPCB.png)
 ![Example KiCAD Output](assets/proto3D.png)
@@ -35,7 +41,8 @@ The `ENCLOSURE` tab is present in the UI but intentionally empty for now.
 
 - Python `3.12` or newer
 - `pip`
-- A terminal that can run Textual apps
+- A terminal that can run Textual apps for CLI mode
+- A modern web browser for browser mode
 - KiCad is not required to generate files, but you will want KiCad installed to open and inspect the generated `.kicad_pcb` files
 
 ## Installation
@@ -91,6 +98,12 @@ python -m pip install -e .
 
 This installs the `ezproto` command from the local source tree in editable mode.
 
+Browser mode is available immediately after install:
+
+```powershell
+ezproto --web
+```
+
 #### 4. Summary
 
 ```bash
@@ -115,6 +128,8 @@ This helps VS Code resolve the `textual` imports and the local `src` package cor
 
 ## How To Run
 
+### CLI mode
+
 From anywhere after installation:
 
 ```powershell
@@ -127,7 +142,29 @@ Alternative:
 python -m ezproto
 ```
 
-You do not need to run EZProto from the project root anymore. By default it stores local data in a per-user application data folder:
+### Web mode
+
+Serve the Textual app in your browser:
+
+```powershell
+ezproto --web
+```
+
+Alternative:
+
+```powershell
+python -m ezproto --web
+```
+
+Browser mode serves the Textual app itself on `http://localhost:8000` by default and opens your browser automatically.
+
+To bind a different interface or port:
+
+```powershell
+ezproto --web --host 0.0.0.0 --port 8000
+```
+
+You do not need to run EZProto from the project root. By default it stores local data in a per-user application data folder:
 
 - Windows: `%APPDATA%\EZProto`
 - macOS: `~/Library/Application Support/EZProto`
@@ -198,6 +235,12 @@ Optional DFM export controls:
 
 - `Include drill file` adds the plated drill file to the DFM package.
 - `.ZIP archive` creates a `*_DFM.zip` archive next to the DFM folder.
+
+Protoboard actions:
+
+- `Generate PCB` writes the KiCad board file and optional DFM outputs.
+- `Make it with PCBWay!` opens PCBWay Quick Quote in your browser.
+- `Reset form` opens a confirmation screen before clearing the current protoboard inputs.
 
 The right side of the `PROTOBOARD` tab shows:
 
@@ -276,6 +319,7 @@ python -m compileall src tests
 
 ## Current Scope
 
+- Dual launch modes: terminal UI and browser-served UI
 - Protoboard PCB generation
 - Simple Gerber, drill, and ZIP export
 - User profiles and app state persistence

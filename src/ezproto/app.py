@@ -6,6 +6,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult # type: ignore
 from textual.containers import Container, Horizontal, Vertical # type: ignore
+from textual.screen import ModalScreen # type: ignore
 from textual.widgets import ( # type: ignore
     Button,
     Checkbox,
@@ -107,6 +108,35 @@ BREAKOUT_DFM_CHECKBOX_IDS = {
     "breakout_zip_output",
 }
 
+# PCBWAY_ORDER_URL = "https://www.pcbway.com/orderonline.aspx"
+
+PCBWAY_ORDER_URL = "https://www.pcbway.com/QuickOrderOnline.aspx;"
+
+class ResetFormConfirmationScreen(ModalScreen[bool]):
+    """Modal confirmation screen shown before clearing the protoboard form."""
+
+    def compose(self) -> ComposeResult:
+        with Container(id="reset_form_overlay"):
+            with Vertical(id="reset_form_dialog"):
+                yield Static("Reset protoboard form?", id="reset_form_dialog_title")
+                yield Static(
+                    (
+                        "Your current protoboard values will stay untouched unless you "
+                        "confirm. Saved users and generated files will not be deleted."
+                    ),
+                    id="reset_form_dialog_message",
+                )
+                with Horizontal(id="reset_form_dialog_actions", classes="button_row"):
+                    yield Button("Cancel", id="cancel_reset_form")
+                    yield Button("Reset Form", variant="error", id="confirm_reset_form")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm_reset_form":
+            self.dismiss(True)
+            return
+        if event.button.id == "cancel_reset_form":
+            self.dismiss(False)
+
 
 class ProtoboardApp(App[None]):
     """A form-based app that exports protoboards and manages user settings."""
@@ -148,28 +178,29 @@ class ProtoboardApp(App[None]):
                                 id="welcome_intro",
                             )
 
-                            yield Static(
-                                (
-                                    "+---------------+\n"
-                                    "|      Tab      |\n"
-                                    "|   (+ Shift)   |\n"
-                                    "+---------------+\n\n"
-                                    "Press Tab to cycle through the main sections of the app: PROTOBOARD, BREAKOUT, KEYBOARD, ENCLOSURE, and SETTINGS.\n"
-                                    "Press Shift+Tab to cycle backwards."
-                                ),
-                                id="welcome_navigation",
-                            )
+                            with Horizontal(id="welcome_navigation_frame"):
+                                yield Static(
+                                    (
+                                        "+---------------+\n"
+                                        "|      Tab      |\n"
+                                        "|   (+ Shift)   |\n"
+                                        "+---------------+\n\n"
+                                        "Press Tab to cycle through the different app widgets.\n"
+                                        "Press Shift+Tab to cycle backwards.\n"                                                                                   
+                                    ),
+                                    id="welcome_navigation",
+                                )
 
-                            yield Static(
-                                (
-                                    "+-------+   +-------+\n"
-                                    "| Left  |   | Right |\n"
-                                    "|  <-   |   |  ->   |\n"
-                                    "+-------+   +-------+\n\n"
-                                    "Press the Left and Right arrow keys to move between tabs."
-                                ),
-                                id="welcome_tab_navigation",
-                            )
+                                yield Static(
+                                    (
+                                        "+-------+   +-------+\n"
+                                        "| Left  |   | Right |\n"
+                                        "|  <-   |   |  ->   |\n"
+                                        "+-------+   +-------+\n\n"
+                                        "Press the Left and Right arrow keys to move between tabs, as well as main sections of the app: PROTOBOARD, BREAKOUT, KEYBOARD, ENCLOSURE, and SETTINGS.\n"
+                                    ),
+                                    id="arrow_navigation",
+                                )
 
                             yield Static(
                                 (
@@ -252,6 +283,8 @@ class ProtoboardApp(App[None]):
 
                         with Horizontal(id="buttons", classes="button_row"):
                             yield Button("Generate PCB", variant="primary", id="generate")
+                            yield Button("Make it with PCBWay!",variant="default", id="pcbway")
+                            yield Button("Reset form", variant="error", id="reset_form")
 
                     with Vertical(id="summary_panel", classes="panel"):
                         yield Static(id="summary")
@@ -438,7 +471,7 @@ class ProtoboardApp(App[None]):
         self.query_one("#active_user_panel", Vertical).border_title = "Active User"
         self.query_one("#create_user_panel", Vertical).border_title = "Create User"
         self.query_one("#welcome_intro", Static).border_title = "Welcome"
-        self.query_one("#welcome_navigation", Static).border_title = "Tab Navigation"
+        self.query_one("#welcome_navigation_frame", Horizontal).border_title = "Tab Navigation"
         self.query_one("#welcome_getting_started", Static).border_title = "Getting Started"
         self.query_one("#welcome_shortcuts", Static).border_title = "Quick Keys"
         self.query_one("#board_preview", Static).border_title = "Board Preview"
@@ -480,6 +513,15 @@ class ProtoboardApp(App[None]):
         if event.button.id == "generate":
             self.action_generate()
             return
+        if event.button.id == "pcbway":
+            self._open_pcbway_quick_quote()
+            return
+        if event.button.id == "reset_form":
+            self.push_screen(
+                ResetFormConfirmationScreen(),
+                self._handle_reset_form_confirmation,
+            )
+            return
         if event.button.id == "generate_breakout":
             self.action_generate_breakout()
             return
@@ -498,6 +540,36 @@ class ProtoboardApp(App[None]):
         if event.button.id == "refresh_users":
             self._refresh_user_list(selected_slug=self.active_user.slug if self.active_user else "")
             self._set_settings_status("User list refreshed.", error=False)
+
+    def _handle_reset_form_confirmation(self, confirmed: bool) -> None:
+        if not confirmed:
+            self._set_proto_status(
+                "Reset cancelled. Your protoboard inputs are still in place.",
+                error=False,
+            )
+            return
+
+        self._reset_protoboard_form()
+
+    def _reset_protoboard_form(self) -> None:
+        for widget_id in PROTO_INPUT_IDS:
+            self.query_one(f"#{widget_id}", Input).value = ""
+
+        rounded_corners = self.query_one("#rounded_corners", Select)
+        if rounded_corners.value != Select.BLANK:
+            rounded_corners.value = Select.BLANK
+
+        self.query_one("#generate_gerbers", Checkbox).value = False
+        self.query_one("#include_drill", Checkbox).value = True
+        self.query_one("#zip_output", Checkbox).value = False
+        self._set_dfm_option_controls_enabled(False)
+        self._refresh_preview()
+        self.query_one("#board_name", Input).focus()
+        self._set_proto_status("Protoboard form reset.", error=False)
+
+    def _open_pcbway_quick_quote(self) -> None:
+        self.open_url(PCBWAY_ORDER_URL)
+        self._set_proto_status("Opened PCBWay Quick Quote in your browser.", error=False)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in PROTO_INPUT_IDS:

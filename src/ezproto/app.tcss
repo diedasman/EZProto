@@ -34,7 +34,7 @@ TabbedContent {
 #welcome_logo_column {
     # content-align: center middle;
     height: auto;
-    width: auto;
+    width: 30%;
 }
 
 #welcome_art {
@@ -42,7 +42,7 @@ TabbedContent {
     height: auto;
     # margin-bottom: 1;
     # margin-top: 1;
-    padding: 2 2;
+    padding: 1 2;
     color: $accent;
     border: round $primary;
     text-align: center;
@@ -51,29 +51,60 @@ TabbedContent {
 #welcome_message_column {
     # content-align: center middle;
     height: auto;
+    width: 70%;
+    layout: vertical;
     # width: auto;
     # padding: 2 2;
 }
 
-#welcome_intro,
-#welcome_navigation,
-#welcome_tab_navigation,
-#welcome_getting_started,
+#welcome_intro {
+    text-align: center;
+    margin-bottom: 1;
+    border: round $primary;
+    padding: 1 1;
+}
+
+#welcome_navigation_frame {
+    # text-align: center;
+    layout: grid;
+    grid-size: 2;
+    # margin-top: 1;
+    border: round $primary;
+    padding: 1 1;
+    height: auto;
+}
+
+#welcome_navigation {
+    text-align: center;
+    margin-top: 1;
+    margin-left: 2;
+}
+
+#arrow_navigation {
+    text-align: center;
+    margin-top: 1;
+}
+
+#welcome_getting_started {
+    text-align: center;
+    margin-top: 1;
+    border: round $primary;
+    padding: 1 1;
+}
+
 #welcome_shortcuts {
     border: round $primary;
     padding: 1 1;
     height: auto;
-    margin-bottom: 1;
-    margin-left: 2;
+    margin-top: 1;
+    # margin-bottom: 1;
+    # margin-left: 1;
 }
 
 #welcome_intro {
     text-align: center;
 }
 
-#welcome_navigation {
-    text-align: center;
-}
 
 #settings_layout {
     height: 1fr;
@@ -115,7 +146,7 @@ TabbedContent {
 
 #form {
     layout: grid;
-    grid-size: 2;
+    grid-size: 2 9;
     grid-columns: 18 1fr;
     grid-gutter: 1 1;
     # padding: 1 1;
@@ -321,7 +352,68 @@ TabbedContent {
 }
 
 .button_row {
+    # content-align: right middle;
     margin-top: 1;
+    height: auto;
+}
+
+#buttons {
+    content-align: right middle;
+    margin-top: 1;
+    height: auto;
+}
+
+#generate {
+    width: auto;
+    margin-left: 1;
+}
+
+#pcbway {
+    width: auto;
+    margin-left: 1;
+    background: #2f9e5b;
+    color: #f8fff8;
+}
+
+#reset_form {
+    width: auto;
+    margin-left: 70;
+}
+
+#pcbway:hover,
+#pcbway:focus {
+    background: #24854b;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#reset_form_overlay {
+    align: center middle;
+    background: $background 70%;
+    width: 100%;
+    height: 100%;
+}
+
+#reset_form_dialog {
+    width: 64;
+    height: auto;
+    border: round $error;
+    background: $surface;
+    padding: 1 2;
+}
+
+#reset_form_dialog_title {
+    content-align: center middle;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#reset_form_dialog_message {
+    margin-bottom: 1;
+}
+
+#reset_form_dialog_actions {
+    content-align: center middle;
     height: auto;
 }
 

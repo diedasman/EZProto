@@ -8,12 +8,42 @@ from typing import Sequence, TextIO
 
 from ezproto import __version__
 from ezproto.updater import UpdateError, update_installation
+from ezproto.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, run_web_app
+
+
+def parse_port(value: str) -> int:
+    """Validate a TCP port argument for browser mode."""
+
+    try:
+        port = int(value)
+    except ValueError as exc:  # pragma: no cover - argparse formatting path
+        raise argparse.ArgumentTypeError("Port must be an integer.") from exc
+
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("Port must be between 1 and 65535.")
+    return port
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Create the EZProto command-line parser."""
 
     parser = argparse.ArgumentParser(prog="ezproto")
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Serve the Textual app in a local browser instead of the terminal",
+    )
+    parser.add_argument(
+        "--host",
+        default=DEFAULT_WEB_HOST,
+        help=f"Host to bind in web mode (default: {DEFAULT_WEB_HOST})",
+    )
+    parser.add_argument(
+        "--port",
+        type=parse_port,
+        default=DEFAULT_WEB_PORT,
+        help=f"Port to bind in web mode (default: {DEFAULT_WEB_PORT})",
+    )
     parser.add_argument(
         "--version",
         action="version",
@@ -66,6 +96,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "update":
         return run_update_command()
+
+    if args.web:
+        run_web_app(host=args.host, port=args.port)
+        return 0
 
     from ezproto.app import ProtoboardApp
 

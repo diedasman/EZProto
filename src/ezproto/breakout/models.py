@@ -7,6 +7,7 @@ from math import hypot
 from pathlib import Path
 from typing import Any, Iterable
 
+# The order in which sides are processed and rendered, if selected.
 SIDE_ORDER = ("N", "E", "S", "W")
 
 

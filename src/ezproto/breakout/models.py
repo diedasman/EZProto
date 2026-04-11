@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot
+from math import cos, hypot, pi, sin, sqrt
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 # The order in which sides are processed and rendered, if selected.
 SIDE_ORDER = ("N", "E", "S", "W")
@@ -22,6 +22,7 @@ class BreakoutConfig:
     sides: tuple[str, ...]
     header_offset_mm: float = 2.0
     margin_mm: float = 2.0
+    mounting_hole_diameter_mm: float = 0.0
     board_name: str = ""
     header_drill_mm: float = 1.0
     header_pad_diameter_mm: float = 1.8
@@ -92,6 +93,42 @@ class BreakoutConfig:
     def route_spacing_mm(self) -> float:
         return self.trace_width_mm + self.trace_clearance_mm
 
+    @property
+    def mounting_hole_count(self) -> int:
+        return 4 if self.mounting_hole_diameter_mm > 0 else 0
+
+    @property
+    def mounting_hole_inset_mm(self) -> float:
+        return self.header_offset_mm
+
+    def iter_mounting_hole_positions(self) -> Iterator[tuple[float, float]]:
+        if self.mounting_hole_diameter_mm <= 0:
+            return
+
+        inset = self.mounting_hole_inset_mm
+        max_x = self.board_width_mm - inset
+        max_y = self.board_height_mm - inset
+
+        yield inset, inset
+        yield max_x, inset
+        yield inset, max_y
+        yield max_x, max_y
+
+    def header_position_limits(self, side: str) -> tuple[float, float]:
+        axis_limit = self.board_width_mm if side in {"N", "S"} else self.board_height_mm
+        minimum = self.margin_mm
+        maximum = axis_limit - self.margin_mm
+
+        if self.mounting_hole_diameter_mm <= 0:
+            return minimum, maximum
+
+        hole_clearance = self._header_mounting_hole_axis_clearance_mm()
+        inset = self.mounting_hole_inset_mm
+        return (
+            max(minimum, inset + hole_clearance),
+            min(maximum, axis_limit - inset - hole_clearance),
+        )
+
     def point_is_inside_outline(self, point_x: float, point_y: float) -> bool:
         if point_x < 0 or point_y < 0:
             return False
@@ -128,6 +165,8 @@ class BreakoutConfig:
             raise ValueError("Header offset must be greater than 0 mm.")
         if self.margin_mm < 0:
             raise ValueError("Margin cannot be negative.")
+        if self.mounting_hole_diameter_mm < 0:
+            raise ValueError("Mounting hole diameter cannot be negative.")
         if self.header_drill_mm <= 0:
             raise ValueError("Header drill must be greater than 0 mm.")
         if self.header_pad_diameter_mm <= self.header_drill_mm:
@@ -150,6 +189,51 @@ class BreakoutConfig:
             )
         if self.rounded_corner_radius_mm > min(self.board_width_mm, self.board_height_mm) / 2.0:
             raise ValueError("Rounded corner radius is too large for the board size.")
+        if self.mounting_hole_diameter_mm == 0:
+            return
+
+        if self.mounting_hole_diameter_mm > 2.0 * self.mounting_hole_inset_mm:
+            raise ValueError("Mounting hole diameter must fit inside the header offset.")
+        if self.board_width_mm < (2.0 * self.mounting_hole_inset_mm) + self.mounting_hole_diameter_mm:
+            raise ValueError("Board width must leave room for the corner mounting holes.")
+        if self.board_height_mm < (2.0 * self.mounting_hole_inset_mm) + self.mounting_hole_diameter_mm:
+            raise ValueError("Board height must leave room for the corner mounting holes.")
+        if self.rounded_corner_radius_mm > 0:
+            clearance = 0.2
+            feature_radius = (self.mounting_hole_diameter_mm / 2.0) + clearance
+            for center_x, center_y in self.iter_mounting_hole_positions():
+                self._validate_feature_against_outline(
+                    center_x=center_x,
+                    center_y=center_y,
+                    feature_radius=feature_radius,
+                    feature_name="mounting hole",
+                )
+
+    def _header_mounting_hole_axis_clearance_mm(self) -> float:
+        required_distance = (
+            (self.mounting_hole_diameter_mm / 2.0)
+            + (self.header_pad_diameter_mm / 2.0)
+            + 0.2
+        )
+        orthogonal_delta = abs(self.header_offset_mm - self.mounting_hole_inset_mm)
+        if orthogonal_delta >= required_distance:
+            return 0.0
+        return sqrt((required_distance**2) - (orthogonal_delta**2))
+
+    def _validate_feature_against_outline(
+        self,
+        *,
+        center_x: float,
+        center_y: float,
+        feature_radius: float,
+        feature_name: str,
+    ) -> None:
+        for point_x, point_y in _sample_circle(center_x, center_y, feature_radius):
+            if not self.point_is_inside_outline(point_x, point_y):
+                raise ValueError(
+                    f"Rounded corners clip the {feature_name}; reduce the corner radius "
+                    "or increase the clearances."
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,3 +327,15 @@ def _normalize_path_text(path: Path | str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1].strip()
     return value
+
+
+def _sample_circle(
+    center_x: float,
+    center_y: float,
+    radius: float,
+    *,
+    steps: int = 32,
+) -> Iterator[tuple[float, float]]:
+    for step in range(steps):
+        angle = (2 * pi * step) / steps
+        yield center_x + (cos(angle) * radius), center_y + (sin(angle) * radius)

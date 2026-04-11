@@ -123,6 +123,8 @@ def render_breakout_board(board: BreakoutBoard) -> str:
         lines.append(f'  (net {number} "{_escape_text(net_name)}")')
 
     lines.extend(_render_imported_footprint(board, net_numbers))
+    if board.config.mounting_hole_diameter_mm > 0:
+        lines.extend(_render_breakout_mounting_holes(board))
     lines.extend(_render_breakout_headers(board, net_numbers))
     lines.extend(_render_breakout_segments(board, net_numbers))
     lines.extend(
@@ -324,6 +326,39 @@ def _render_breakout_headers(
                 f"      (drill {drill_size})",
                 '      (layers "*.Cu" "*.Mask")',
                 f'      (net {net_number} "{_escape_text(header.net)}")',
+                "    )",
+                "  )",
+            ]
+        )
+    return lines
+
+
+def _render_breakout_mounting_holes(board: BreakoutBoard) -> list[str]:
+    diameter = _mm(board.config.mounting_hole_diameter_mm)
+    label_offset = _mm(max(board.config.header_offset_mm / 2.0, 2.0))
+
+    lines: list[str] = []
+    for hole_index, (x_pos, y_pos) in enumerate(
+        board.config.iter_mounting_hole_positions(),
+        start=1,
+    ):
+        lines.extend(
+            [
+                '  (footprint "EZProto:MountingHole_NPTH"',
+                '    (layer "F.Cu")',
+                f"    (at {_mm(x_pos)} {_mm(y_pos)})",
+                "    (attr board_only exclude_from_pos_files exclude_from_bom)",
+                f'    (fp_text reference "H{hole_index}" (at 0 -{label_offset}) (layer "F.SilkS") hide',
+                "      (effects (font (size 1 1) (thickness 0.15)))",
+                "    )",
+                '    (fp_text value "MountingHole_NPTH" (at 0 0) (layer "F.Fab") hide',
+                "      (effects (font (size 1 1) (thickness 0.15)))",
+                "    )",
+                '    (pad "" np_thru_hole circle',
+                "      (at 0 0)",
+                f"      (size {diameter} {diameter})",
+                f"      (drill {diameter})",
+                '      (layers "*.Cu" "*.Mask")',
                 "    )",
                 "  )",
             ]

@@ -107,6 +107,7 @@ class BreakoutAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                     app.query_one("#breakout_trace_width", Input).value = "0.30"
                     app.query_one("#breakout_header_offset", Input).value = "2.5"
                     app.query_one("#breakout_margin", Input).value = "2"
+                    app.query_one("#breakout_mount_hole", Input).value = "3.2"
                     app.query_one("#breakout_side_n", Checkbox).value = True
                     app.query_one("#breakout_side_s", Checkbox).value = True
 
@@ -130,6 +131,7 @@ class BreakoutAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                 pcb_contents = pcb_path.read_text(encoding="utf-8")
                 self.assertIn("SOIC_6_Test", pcb_contents)
                 self.assertIn("EZProto:BreakoutPin", pcb_contents)
+                self.assertIn("MountingHole_NPTH", pcb_contents)
                 self.assertIn("(segment", pcb_contents)
 
                 saved_profile = load_user_profile("user")
@@ -139,6 +141,8 @@ class BreakoutAppGenerationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(board_details["board_type"], "breakout")
                 self.assertEqual(board_details["logical_pad_count"], 6)
                 self.assertEqual(board_details["header_count"], 6)
+                self.assertEqual(board_details["mounting_hole_diameter_mm"], 3.2)
+                self.assertEqual(board_details["mounting_hole_count"], 4)
                 self.assertEqual(board_details["trace_width_mm"], 0.30)
                 self.assertEqual(board_details["output_file"], str(pcb_path))
 

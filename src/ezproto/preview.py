@@ -101,6 +101,15 @@ def render_breakout_preview(board: BreakoutBoard) -> str:
         f"trace {board.config.trace_width_mm:g} mm | {board.config.pitch_mm:g} mm pitch",
         inner_width,
     ).center(inner_width)
+    hole_detail = _trim_text(
+        (
+            f"holes {board.config.mounting_hole_count} x "
+            f"{board.config.mounting_hole_diameter_mm:g} mm"
+        )
+        if board.config.mounting_hole_count
+        else "holes disabled",
+        inner_width,
+    ).center(inner_width)
 
     lines = [
         f"      N:{side_counts['N']}",
@@ -108,6 +117,7 @@ def render_breakout_preview(board: BreakoutBoard) -> str:
         f"W:{side_counts['W']:<2} {vertical} {title} {vertical} E:{side_counts['E']:>2}",
         f"   {vertical} {detail} {vertical}",
         f"   {vertical} {trace_detail} {vertical}",
+        f"   {vertical} {hole_detail} {vertical}",
         f"   {bottom_left}{horizontal * (inner_width + 2)}{bottom_right}",
         f"      S:{side_counts['S']}",
         (

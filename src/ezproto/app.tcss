@@ -248,6 +248,15 @@ TabbedContent {
     margin-top: 1;
 }
 
+#breakout_mount_hole_row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 18 1fr;
+    grid-gutter: 1 1;
+    height: auto;
+    margin-top: 1;
+}
+
 #breakout_rounded_corners_row {
     layout: grid;
     grid-size: 2;

@@ -90,6 +90,8 @@ BREAKOUT_INPUT_IDS = {
     "breakout_board_width",
     "breakout_board_height",
     "breakout_pitch",
+    "breakout_rounded_corners",
+    "breakout_mount_hole",
     "breakout_trace_width",
     "breakout_header_offset",
     "breakout_margin",
@@ -356,6 +358,13 @@ class ProtoboardApp(App[None]):
                                     yield Checkbox("East", id="breakout_side_e")
                                     yield Checkbox("South", id="breakout_side_s", value=True)
                                     yield Checkbox("West", id="breakout_side_w")
+
+                            with Horizontal(id="breakout_mount_hole_row"):    
+                                yield Label("Mount hole (mm)", classes="field_label")
+                                yield Input(
+                                    id="breakout_mount_hole",
+                                    placeholder="Mount hole diameter (mm)",
+                                )
 
                             with Horizontal(id="breakout_rounded_corners_row"):
                                 yield Label("Rounded corners", classes="field_label")
@@ -899,6 +908,11 @@ class ProtoboardApp(App[None]):
                 self._value("breakout_header_offset"),
                 default=2.0,
             ),
+            mounting_hole_diameter_mm=self._parse_optional_float(
+                "Mounting hole diameter",
+                self._value("breakout_mount_hole"),
+                default=0.0,
+            ),
             margin_mm=self._parse_optional_float(
                 "Side margin",
                 self._value("breakout_margin"),
@@ -1045,6 +1059,11 @@ class ProtoboardApp(App[None]):
 
         footprint = board.footprint
         side_label = ", ".join(config.sides)
+        mounting_holes = (
+            f"{config.mounting_hole_count} x {config.mounting_hole_diameter_mm:.2f} mm"
+            if config.mounting_hole_count
+            else "Disabled"
+        )
         corner_style = (
             f"{config.rounded_corner_radius_mm:.2f} mm radius"
             if config.has_rounded_corners
@@ -1092,6 +1111,7 @@ class ProtoboardApp(App[None]):
                     f"Sides: {side_label}",
                     f"Header offset: {config.header_offset_mm:.2f} mm",
                     f"Side margin: {config.margin_mm:.2f} mm",
+                    f"Mounting holes: {mounting_holes}",
                     f"Corners: {corner_style}",
                     f"Headers: {len(board.headers)}",
                     f"Trace segments: {len(board.traces)}",
@@ -1451,6 +1471,8 @@ class ProtoboardApp(App[None]):
             "trace_width_mm": board.config.trace_width_mm,
             "header_offset_mm": board.config.header_offset_mm,
             "margin_mm": board.config.margin_mm,
+            "mounting_hole_diameter_mm": board.config.mounting_hole_diameter_mm,
+            "mounting_hole_count": board.config.mounting_hole_count,
             "rounded_corner_radius_mm": board.config.rounded_corner_radius_mm,
             "sides": list(board.config.sides),
             "sides_label": side_label,

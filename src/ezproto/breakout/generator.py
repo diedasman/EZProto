@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import cos, pi, sin
+from math import cos, hypot, pi, sin
 import re
 
 from .footprint_parser import load_footprint
@@ -116,6 +116,45 @@ def _validate_generated_geometry(
                     f"Rounded corners clip header pad '{header.name}'."
                 )
 
+    mounting_hole_radius = config.mounting_hole_diameter_mm / 2.0
+    if mounting_hole_radius > 0:
+        clearance = 0.2
+        for hole_x, hole_y in config.iter_mounting_hole_positions():
+            for point_x, point_y in _sample_circle(
+                hole_x,
+                hole_y,
+                mounting_hole_radius + clearance,
+            ):
+                if not config.point_is_inside_outline(point_x, point_y):
+                    raise ValueError(
+                        "Rounded corners clip the mounting hole; reduce the corner radius "
+                        "or increase the clearances."
+                    )
+
+            for pad in pads:
+                if _circle_intersects_pad(
+                    center_x=hole_x,
+                    center_y=hole_y,
+                    radius=mounting_hole_radius + clearance,
+                    pad=pad,
+                ):
+                    raise ValueError(
+                        f"Mounting hole overlaps footprint pad '{pad.name}'."
+                    )
+
+            for header in headers:
+                if _circles_overlap(
+                    first_x=hole_x,
+                    first_y=hole_y,
+                    first_radius=mounting_hole_radius + clearance,
+                    second_x=header.x,
+                    second_y=header.y,
+                    second_radius=header_radius,
+                ):
+                    raise ValueError(
+                        f"Mounting hole overlaps header pad '{header.name}'."
+                    )
+
     for trace in traces:
         for point_x, point_y in _sample_trace(trace):
             if not config.point_is_inside_outline(point_x, point_y):
@@ -150,3 +189,29 @@ def _sample_trace(trace, *, step_mm: float = 0.2) -> list[tuple[float, float]]:
         )
         for step in range(steps + 1)
     ]
+
+
+def _circle_intersects_pad(
+    *,
+    center_x: float,
+    center_y: float,
+    radius: float,
+    pad: Pad,
+) -> bool:
+    half_width = pad.width_mm / 2.0
+    half_height = pad.height_mm / 2.0
+    nearest_x = min(max(center_x, pad.x - half_width), pad.x + half_width)
+    nearest_y = min(max(center_y, pad.y - half_height), pad.y + half_height)
+    return hypot(center_x - nearest_x, center_y - nearest_y) < radius
+
+
+def _circles_overlap(
+    *,
+    first_x: float,
+    first_y: float,
+    first_radius: float,
+    second_x: float,
+    second_y: float,
+    second_radius: float,
+) -> bool:
+    return hypot(first_x - second_x, first_y - second_y) < (first_radius + second_radius)

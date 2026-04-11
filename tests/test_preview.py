@@ -74,10 +74,16 @@ class PreviewRenderTests(unittest.TestCase):
         self.assertIn("view fit", preview)
         self.assertIn("Pads: 1, 2, 3, 4, 5, 6", preview)
 
-    def test_breakout_preview_shows_trace_width_and_corner_style(self) -> None:
-        preview = render_breakout_preview(make_breakout(rounded_corner_radius_mm=2.0))
+    def test_breakout_preview_shows_trace_width_corner_style_and_mounting_holes(self) -> None:
+        preview = render_breakout_preview(
+            make_breakout(
+                rounded_corner_radius_mm=2.0,
+                mounting_hole_diameter_mm=3.2,
+            )
+        )
 
         self.assertIn("trace 0.25 mm", preview)
+        self.assertIn("holes 4 x 3.2 mm", preview)
         self.assertIn("corners 2 mm", preview)
         self.assertIn("N:3", preview)
         self.assertIn("S:3", preview)

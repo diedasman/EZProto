@@ -30,12 +30,14 @@ class WelcomeTabTests(unittest.IsolatedAsyncioTestCase):
 
                     intro = app.query_one("#welcome_intro", Static)
                     navigation = app.query_one("#welcome_navigation", Static)
+                    arrow_navigation = app.query_one("#arrow_navigation", Static)
                     getting_started = app.query_one("#welcome_getting_started", Static)
                     shortcuts = app.query_one("#welcome_shortcuts", Static)
 
                     self.assertIn("keyboard-friendly workspace", str(intro.renderable))
-                    self.assertIn("+-------+   +-------+", str(navigation.renderable))
-                    self.assertIn("Left and Right arrow keys", str(navigation.renderable))
+                    self.assertIn("+---------------+", str(navigation.renderable))
+                    self.assertIn("+-------+   +-------+", str(arrow_navigation.renderable))
+                    self.assertIn("Left and Right arrow keys", str(arrow_navigation.renderable))
                     self.assertIn("Open SETTINGS first", str(getting_started.renderable))
                     self.assertIn("Ctrl+G", str(shortcuts.renderable))
 

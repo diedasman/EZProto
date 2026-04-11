@@ -175,6 +175,25 @@ class BreakoutBoardTests(unittest.TestCase):
         self.assertEqual(rendered.count("(gr_line"), 4)
         self.assertNotIn("(gr_rect", rendered)
 
+    def test_render_breakout_board_includes_corner_mounting_holes_when_enabled(self) -> None:
+        board = generate_breakout(make_config(mounting_hole_diameter_mm=3.2))
+
+        rendered = render_breakout_board(board)
+
+        self.assertEqual(board.config.mounting_hole_count, 4)
+        self.assertEqual(rendered.count('(footprint "EZProto:MountingHole_NPTH"'), 4)
+        self.assertEqual(rendered.count('(pad "" np_thru_hole circle'), 4)
+
+    def test_breakout_config_validates_rounded_corners_against_mounting_holes(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "Rounded corners clip the mounting hole",
+        ):
+            make_config(
+                mounting_hole_diameter_mm=3.2,
+                rounded_corner_radius_mm=5.0,
+            )
+
     def test_write_breakout_board_creates_output_file(self) -> None:
         board = generate_breakout(make_config())
 

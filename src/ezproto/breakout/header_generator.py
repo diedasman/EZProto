@@ -43,11 +43,8 @@ def generate_headers(pads: list[Pad] | tuple[Pad, ...], config: BreakoutConfig) 
 
 
 def _side_capacity(side: str, config: BreakoutConfig) -> int:
-    usable_span = (
-        config.board_width_mm - (2 * config.margin_mm)
-        if side in {"N", "S"}
-        else config.board_height_mm - (2 * config.margin_mm)
-    )
+    minimum, maximum = config.header_position_limits(side)
+    usable_span = maximum - minimum
     if usable_span < 0:
         return 0
     return int(usable_span // config.pitch_mm) + 1
@@ -130,12 +127,13 @@ def _positions_for_side(
     positions: list[tuple[float, float]] = []
 
     if side in {"N", "S"}:
-        start = (config.board_width_mm / 2.0) - (span / 2.0)
-        end = start + span
-        if start < config.margin_mm or end > config.board_width_mm - config.margin_mm:
+        minimum, maximum = config.header_position_limits(side)
+        available_span = maximum - minimum
+        if span > available_span:
             raise ValueError(
                 f"Not enough width to place {count} header pins on the {side} side."
             )
+        start = minimum + ((available_span - span) / 2.0)
         y_pos = (
             config.header_offset_mm
             if side == "N"
@@ -145,12 +143,13 @@ def _positions_for_side(
             positions.append((start + (index * config.pitch_mm), y_pos))
         return positions
 
-    start = (config.board_height_mm / 2.0) - (span / 2.0)
-    end = start + span
-    if start < config.margin_mm or end > config.board_height_mm - config.margin_mm:
+    minimum, maximum = config.header_position_limits(side)
+    available_span = maximum - minimum
+    if span > available_span:
         raise ValueError(
             f"Not enough height to place {count} header pins on the {side} side."
         )
+    start = minimum + ((available_span - span) / 2.0)
     x_pos = (
         config.board_width_mm - config.header_offset_mm
         if side == "E"

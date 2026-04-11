@@ -134,6 +134,18 @@ def _build_obstacles(
             )
         )
 
+    if config.mounting_hole_diameter_mm > 0:
+        hole_radius = (config.mounting_hole_diameter_mm / 2.0) + config.trace_clearance_mm
+        for hole_x, hole_y in config.iter_mounting_hole_positions():
+            obstacles.append(
+                _Rect(
+                    min_x=hole_x - hole_radius,
+                    min_y=hole_y - hole_radius,
+                    max_x=hole_x + hole_radius,
+                    max_y=hole_y + hole_radius,
+                )
+            )
+
     trace_radius = (config.trace_width_mm / 2.0) + config.trace_clearance_mm
     for trace in traces:
         obstacles.append(

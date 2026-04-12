@@ -79,6 +79,17 @@ class FootprintParserTests(unittest.TestCase):
 
         self.assertEqual(resolved, target.resolve())
 
+    def test_resolve_footprint_path_accepts_pretty_library_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pretty_directory = Path(temp_dir) / "Test.pretty"
+            pretty_directory.mkdir()
+            target = pretty_directory / fixture_path().name
+            target.write_text(fixture_path().read_text(encoding="utf-8"), encoding="utf-8")
+
+            resolved = resolve_footprint_path(f"{pretty_directory}:{target.stem}")
+
+        self.assertEqual(resolved, target.resolve())
+
     def test_load_footprint_ignores_npth_pads_for_routing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "NPTH_Test.kicad_mod"
@@ -166,6 +177,19 @@ class BreakoutBoardTests(unittest.TestCase):
         self.assertIn('(net 1 "PAD_1")', rendered)
         self.assertIn("(gr_rect", rendered)
 
+    def test_render_breakout_board_preserves_pretty_library_link(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pretty_directory = Path(temp_dir) / "Package_SO.pretty"
+            pretty_directory.mkdir()
+            target = pretty_directory / fixture_path().name
+            target.write_text(fixture_path().read_text(encoding="utf-8"), encoding="utf-8")
+
+            board = generate_breakout(make_config(footprint_path=f"{pretty_directory}:{target.stem}"))
+
+        rendered = render_breakout_board(board)
+
+        self.assertIn('"Package_SO:SOIC_6_Test"', rendered)
+
     def test_render_breakout_board_uses_rounded_outline_when_requested(self) -> None:
         board = generate_breakout(make_config(rounded_corner_radius_mm=2.0))
 
@@ -204,6 +228,35 @@ class BreakoutBoardTests(unittest.TestCase):
             self.assertTrue(destination.exists())
             self.assertEqual(written_path, destination.resolve())
             self.assertIn("SOIC_6_Test", destination.read_text(encoding="utf-8"))
+
+    def test_generate_breakout_can_capture_routing_debug_svg(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            debug_path = Path(temp_dir) / "routing.svg"
+            board = generate_breakout(
+                make_config(
+                    debug_routing=True,
+                    routing_debug_output_path=debug_path,
+                )
+            )
+            written_svg = debug_path.read_text(encoding="utf-8")
+            self.assertTrue(debug_path.exists())
+
+        self.assertEqual(board.routing_warnings, ())
+        self.assertIsNotNone(board.routing_debug_svg)
+        assert board.routing_debug_svg is not None
+        self.assertIn("<svg", board.routing_debug_svg)
+        self.assertIn("<polyline", written_svg)
+
+    def test_breakout_config_uses_footprint_name_from_pretty_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pretty_directory = Path(temp_dir) / "Library.pretty"
+            pretty_directory.mkdir()
+            target = pretty_directory / fixture_path().name
+            target.write_text(fixture_path().read_text(encoding="utf-8"), encoding="utf-8")
+
+            config = make_config(board_name="", footprint_path=f"{pretty_directory}:{target.stem}")
+
+        self.assertEqual(config.board_name, "simple soic6")
 
 
 def _segments_intersect(first: TraceSegment, second: TraceSegment) -> bool:

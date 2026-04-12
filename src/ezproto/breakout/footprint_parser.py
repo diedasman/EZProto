@@ -22,7 +22,7 @@ SExpr: TypeAlias = Atom | list["SExpr"]
 
 
 def load_footprint(path: Path | str) -> ParsedFootprint:
-    """Load a KiCad footprint from a file path or single-footprint directory."""
+    """Load a KiCad footprint from a file path, `.pretty` reference, or directory."""
 
     footprint_path = resolve_footprint_path(path)
     tree = parse_sexpr(footprint_path.read_text(encoding="utf-8"))
@@ -30,6 +30,7 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
         raise ValueError(f"{footprint_path} is not a KiCad footprint file.")
 
     footprint_name = _atom_value(tree[1]) if len(tree) > 1 and isinstance(tree[1], Atom) else footprint_path.stem
+    library_link = _footprint_library_link(footprint_path, footprint_name)
     physical_pads: list[tuple[str, float, float, float, float, int, bool]] = []
     npth_pad_count = 0
 
@@ -101,6 +102,7 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
     return ParsedFootprint(
         path=footprint_path,
         name=footprint_name,
+        library_link=library_link,
         tree=tree,
         pads=pads,
         bounds=Bounds(min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y),
@@ -112,7 +114,11 @@ def load_footprint(path: Path | str) -> ParsedFootprint:
 def resolve_footprint_path(path: Path | str) -> Path:
     """Resolve a path to a concrete `.kicad_mod` file."""
 
-    candidate = Path(_normalize_path_text(path)).expanduser()
+    raw_value = _normalize_path_text(path)
+    candidate = Path(raw_value).expanduser()
+    pretty_reference = _resolve_pretty_reference(raw_value)
+    if pretty_reference is not None:
+        return pretty_reference
     if not candidate.exists():
         raise ValueError(f"Footprint path does not exist: {candidate}")
     if candidate.is_file():
@@ -120,14 +126,7 @@ def resolve_footprint_path(path: Path | str) -> Path:
             raise ValueError("Footprint path must point to a .kicad_mod file.")
         return candidate.resolve()
 
-    footprint_files = sorted(candidate.glob("*.kicad_mod"))
-    if not footprint_files:
-        raise ValueError(f"No .kicad_mod files found in {candidate}.")
-    if len(footprint_files) > 1:
-        raise ValueError(
-            f"Found multiple .kicad_mod files in {candidate}; choose a single footprint file."
-        )
-    return footprint_files[0].resolve()
+    return _resolve_directory_footprint(candidate)
 
 
 def parse_sexpr(text: str) -> list[SExpr]:
@@ -288,6 +287,58 @@ def _normalize_path_text(path: Path | str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1].strip()
     return value
+
+
+def _resolve_pretty_reference(path_text: str) -> Path | None:
+    match = re.search(r"\.pretty(?:(?::|[\\/]))", path_text, flags=re.IGNORECASE)
+    if match is None:
+        return None
+
+    library_path = Path(path_text[: match.start() + len(".pretty")]).expanduser()
+    if not library_path.exists() or not library_path.is_dir():
+        return None
+
+    remainder = path_text[match.end() :].strip().strip("\"'")
+    if not remainder:
+        return _resolve_directory_footprint(library_path)
+
+    footprint_name = Path(remainder).name
+    if not footprint_name.lower().endswith(".kicad_mod"):
+        footprint_name = f"{footprint_name}.kicad_mod"
+
+    candidate = library_path / footprint_name
+    if candidate.exists() and candidate.is_file():
+        return candidate.resolve()
+
+    return None
+
+
+def _resolve_directory_footprint(directory: Path) -> Path:
+    footprint_files = sorted(directory.glob("*.kicad_mod"))
+    if not footprint_files:
+        raise ValueError(f"No .kicad_mod files found in {directory}.")
+    if len(footprint_files) == 1:
+        return footprint_files[0].resolve()
+
+    matching_stem = directory.stem
+    matching_files = [
+        footprint_file
+        for footprint_file in footprint_files
+        if footprint_file.stem.lower() == matching_stem.lower()
+    ]
+    if len(matching_files) == 1:
+        return matching_files[0].resolve()
+
+    raise ValueError(
+        f"Found multiple .kicad_mod files in {directory}; choose a single footprint file."
+    )
+
+
+def _footprint_library_link(path: Path, footprint_name: str) -> str:
+    parent = path.parent
+    if parent.suffix.lower() != ".pretty":
+        return footprint_name
+    return f"{parent.stem}:{footprint_name}"
 
 
 def _pad_sort_key(name: str, index: int) -> tuple[int, int | str, int]:

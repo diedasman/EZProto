@@ -113,14 +113,14 @@ TabbedContent {
 #protoboard_layout,
 #breakout_layout {
     layout: horizontal;
-    padding: 1 2;
+    # padding: 1 1;
 }
 
 
 
 #settings_layout {
     layout: vertical;
-    padding: 1 2;
+    padding: 1 1;
 }
 
 #settings_top {
@@ -269,6 +269,13 @@ TabbedContent {
 #breakout_output_controls {
     layout: horizontal;
     height: auto;
+    width: 1fr;
+}
+
+#breakout_function_buttons_row {
+    layout: horizontal;
+    height: auto;
+    margin-top: 1;
     width: 1fr;
 }
 
@@ -455,6 +462,20 @@ TabbedContent {
 
 #generate_breakout {
     width: auto;
+    margin-left: 1;
+    margin-right: 1;
+}
+
+#breakout_pcbway {
+    width: auto;
+    margin-left: 1;
+    background: #2f9e5b;
+    color: #f8fff8;
+}
+
+#breakout_reset_form {
+    width: auto;
+    margin-left: 60;
 }
 
 #breakout_preview,
@@ -476,8 +497,56 @@ TabbedContent {
     # margin-top: 1;
 }
 
-.status_box {
+# ---------- [ ENCLOSURE STYLES ] ---------
+#enclosure_layout {
+    layout: horizontal;
+    # padding: 1 1;
+}
+
+#enclosure_form {
+    layout: vertical;
+    height: auto;
+}
+
+#pcb_file_input_row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 24 1fr;
+    grid-gutter: 1 1;
+    height: auto;
     # margin-top: 1;
+}
+
+#enclosure_height_row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 24 1fr;
+    grid-gutter: 1 1;
+    height: auto;
+    margin-top: 1;
+}
+
+#wall_thickness_row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 24 1fr;
+    grid-gutter: 1 1;
+    height: auto;
+    margin-top: 1;
+}
+
+#enclosure_dfm_options_row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 24 1fr;
+    grid-gutter: 1 1;
+    height: auto;
+    margin-top: 1;
+}
+# -----------------------------------------
+# ----- [ STATUS AND SUMMARY STYLES ] -----
+.status_box {
+    margin-bottom: 1;
 }
 
 .hidden {

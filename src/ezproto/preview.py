@@ -9,6 +9,8 @@ MAX_PREVIEW_COLUMNS = 14
 MAX_PREVIEW_ROWS = 8
 FOOTPRINT_PREVIEW_WIDTH = 22
 FOOTPRINT_PREVIEW_HEIGHT = 7
+BREAKOUT_PREVIEW_WIDTH = 22
+BREAKOUT_PREVIEW_HEIGHT = 7
 
 
 def render_board_preview(parameters: BoardParameters) -> str:
@@ -78,7 +80,7 @@ def render_footprint_preview(footprint: ParsedFootprint) -> str:
 
 
 def render_breakout_preview(board: BreakoutBoard) -> str:
-    """Render a small textual breakout-board summary."""
+    """Render a small textual breakout-board preview with routed traces."""
 
     side_counts = {side: 0 for side in ("N", "E", "S", "W")}
     for header in board.headers:
@@ -90,43 +92,133 @@ def render_breakout_preview(board: BreakoutBoard) -> str:
     bottom_right = "\u256f" if board.config.has_rounded_corners else "\u2518"
     horizontal = "\u2500"
     vertical = "\u2502"
-    inner_width = 22
+    inner_width = BREAKOUT_PREVIEW_WIDTH
+    canvas = [[" " for _ in range(inner_width)] for _ in range(BREAKOUT_PREVIEW_HEIGHT)]
 
-    title = _trim_text(board.footprint.name, inner_width).center(inner_width)
-    detail = _trim_text(
-        f"{len(board.headers)} headers | {len(board.traces)} traces",
-        inner_width,
-    ).center(inner_width)
-    trace_detail = _trim_text(
-        f"trace {board.config.trace_width_mm:g} mm | {board.config.pitch_mm:g} mm pitch",
-        inner_width,
-    ).center(inner_width)
-    hole_detail = _trim_text(
-        (
-            f"holes {board.config.mounting_hole_count} x "
-            f"{board.config.mounting_hole_diameter_mm:g} mm"
-        )
+    _draw_breakout_bounds(canvas, board)
+    for trace in board.traces:
+        _draw_breakout_trace(canvas, board, trace.start_x, trace.start_y, trace.end_x, trace.end_y)
+    for hole_x, hole_y in board.config.iter_mounting_hole_positions() or ():
+        row, col = _breakout_canvas_position(board, hole_x, hole_y, width=inner_width, height=BREAKOUT_PREVIEW_HEIGHT)
+        canvas[row][col] = "O"
+    for pad in board.pads:
+        row, col = _breakout_canvas_position(board, pad.x, pad.y, width=inner_width, height=BREAKOUT_PREVIEW_HEIGHT)
+        canvas[row][col] = _pad_marker(pad.name, "o")
+    for header in board.headers:
+        row, col = _breakout_canvas_position(board, header.x, header.y, width=inner_width, height=BREAKOUT_PREVIEW_HEIGHT)
+        canvas[row][col] = header.side
+
+    routing_detail = (
+        f"routing {len(board.routing_warnings)} fallback"
+        if board.routing_warnings
+        else "routing clean"
+    )
+    hole_detail = (
+        f"holes {board.config.mounting_hole_count} x {board.config.mounting_hole_diameter_mm:g} mm"
         if board.config.mounting_hole_count
-        else "holes disabled",
-        inner_width,
-    ).center(inner_width)
+        else "holes disabled"
+    )
 
     lines = [
         f"      N:{side_counts['N']}",
         f"   {top_left}{horizontal * (inner_width + 2)}{top_right}",
-        f"W:{side_counts['W']:<2} {vertical} {title} {vertical} E:{side_counts['E']:>2}",
-        f"   {vertical} {detail} {vertical}",
-        f"   {vertical} {trace_detail} {vertical}",
-        f"   {vertical} {hole_detail} {vertical}",
+        *[
+            (
+                f"W:{side_counts['W']:<2} {vertical} {''.join(canvas[row])} {vertical} E:{side_counts['E']:>2}"
+                if row == BREAKOUT_PREVIEW_HEIGHT // 2
+                else f"   {vertical} {''.join(canvas[row])} {vertical}"
+            )
+            for row in range(BREAKOUT_PREVIEW_HEIGHT)
+        ],
         f"   {bottom_left}{horizontal * (inner_width + 2)}{bottom_right}",
         f"      S:{side_counts['S']}",
+        _trim_text(board.footprint.name, inner_width + 10),
         (
             f"{len(board.pads)} pads"
-            f" | {board.config.board_width_mm:g} x {board.config.board_height_mm:g} mm"
-            f" | corners {_corner_label(board.config.has_rounded_corners, board.config.rounded_corner_radius_mm)}"
+            f" | {len(board.headers)} headers"
+            f" | {len(board.traces)} traces"
         ),
+        (
+            f"{board.config.board_width_mm:g} x {board.config.board_height_mm:g} mm"
+            f" | trace {board.config.trace_width_mm:g} mm"
+            f" | {routing_detail}"
+        ),
+        f"{hole_detail} | corners {_corner_label(board.config.has_rounded_corners, board.config.rounded_corner_radius_mm)}",
     ]
     return "\n".join(lines)
+
+
+def _draw_breakout_bounds(canvas: list[list[str]], board: BreakoutBoard) -> None:
+    corners = (
+        (board.footprint_origin_x + board.footprint.bounds.min_x, board.footprint_origin_y + board.footprint.bounds.min_y),
+        (board.footprint_origin_x + board.footprint.bounds.max_x, board.footprint_origin_y + board.footprint.bounds.min_y),
+        (board.footprint_origin_x + board.footprint.bounds.max_x, board.footprint_origin_y + board.footprint.bounds.max_y),
+        (board.footprint_origin_x + board.footprint.bounds.min_x, board.footprint_origin_y + board.footprint.bounds.max_y),
+    )
+    for (start_x, start_y), (end_x, end_y) in zip(corners, corners[1:] + corners[:1]):
+        _draw_breakout_trace(canvas, board, start_x, start_y, end_x, end_y, marker=".")
+
+
+def _draw_breakout_trace(
+    canvas: list[list[str]],
+    board: BreakoutBoard,
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+    *,
+    marker: str | None = None,
+) -> None:
+    start_row, start_col = _breakout_canvas_position(
+        board,
+        start_x,
+        start_y,
+        width=len(canvas[0]),
+        height=len(canvas),
+    )
+    end_row, end_col = _breakout_canvas_position(
+        board,
+        end_x,
+        end_y,
+        width=len(canvas[0]),
+        height=len(canvas),
+    )
+    steps = max(abs(end_col - start_col), abs(end_row - start_row), 1)
+    trace_marker = marker or _breakout_segment_marker(start_col, start_row, end_col, end_row)
+    for step in range(steps + 1):
+        fraction = step / steps
+        row = round(start_row + ((end_row - start_row) * fraction))
+        col = round(start_col + ((end_col - start_col) * fraction))
+        existing = canvas[row][col]
+        if existing == " " or existing == "." or existing == trace_marker:
+            canvas[row][col] = trace_marker
+        elif existing != trace_marker:
+            canvas[row][col] = "+"
+
+
+def _breakout_canvas_position(
+    board: BreakoutBoard,
+    x_pos: float,
+    y_pos: float,
+    *,
+    width: int,
+    height: int,
+) -> tuple[int, int]:
+    max_col = max(width - 1, 1)
+    max_row = max(height - 1, 1)
+    col = round((x_pos / max(board.config.board_width_mm, 1.0)) * max_col)
+    row = round((y_pos / max(board.config.board_height_mm, 1.0)) * max_row)
+    return max(0, min(max_row, row)), max(0, min(max_col, col))
+
+
+def _breakout_segment_marker(start_col: int, start_row: int, end_col: int, end_row: int) -> str:
+    delta_col = end_col - start_col
+    delta_row = end_row - start_row
+    if delta_col == 0:
+        return "|"
+    if delta_row == 0:
+        return "-"
+    return "\\" if (delta_col > 0) == (delta_row > 0) else "/"
 
 
 def _render_rows(

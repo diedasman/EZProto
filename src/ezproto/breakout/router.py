@@ -34,11 +34,25 @@ class _Rect:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _RouteAttempt:
+    pad_name: str
+    net: str
+    header_side: str
+    start: _Point
+    end: _Point
+    strategy: str
+    succeeded: bool
+    path: tuple[_Point, ...] = ()
+
+
 def route(
     pads: list[Pad] | tuple[Pad, ...],
     headers: list[HeaderPin] | tuple[HeaderPin, ...],
     *,
     config: BreakoutConfig,
+    warnings: list[str] | None = None,
+    debug_svg: list[str] | None = None,
 ) -> list[TraceSegment]:
     """Route logical pads to generated header pins without overlapping copper."""
 
@@ -55,36 +69,134 @@ def route(
             raise ValueError(f"Unable to find a header pin for pad '{pad.name}'.")
         pairs.append((pad, header_by_net[pad.net]))
 
-    routed: list[TraceSegment] = []
-    for pad, header in sorted(pairs, key=_route_priority):
-        obstacles = _build_obstacles(
+    successful_runs: list[tuple[int, float, int, list[TraceSegment], list[str], list[_RouteAttempt]]] = []
+    failures: list[tuple[int, ValueError, list[_RouteAttempt]]] = []
+    route_orders = [
+        sorted(pairs, key=_route_priority),
+        sorted(pairs, key=_route_length_priority),
+    ]
+
+    for order_index, ordered_pairs in enumerate(route_orders):
+        candidate_warnings: list[str] = []
+        candidate_attempts: list[_RouteAttempt] = []
+        routed: list[TraceSegment] = []
+
+        for pad, header in ordered_pairs:
+            obstacles = _build_obstacles(
+                pads=pads,
+                headers=headers,
+                traces=routed,
+                own_net=header.net,
+                config=config,
+            )
+            start = _Point(pad.x, pad.y)
+            end = _Point(header.x, header.y)
+            path = _find_path(
+                start=start,
+                end=end,
+                pads=pads,
+                headers=headers,
+                obstacles=obstacles,
+                config=config,
+            )
+            strategy = "a*"
+            if path is None:
+                path = _find_fallback_path(
+                    start=start,
+                    end=end,
+                    header=header,
+                    obstacles=obstacles,
+                    config=config,
+                )
+                strategy = "fallback"
+
+            if path is None:
+                candidate_attempts.append(
+                    _RouteAttempt(
+                        pad_name=pad.name,
+                        net=header.net,
+                        header_side=header.side,
+                        start=start,
+                        end=end,
+                        strategy="failed",
+                        succeeded=False,
+                    )
+                )
+                failures.append(
+                    (
+                        order_index,
+                        ValueError(
+                            f"Unable to route pad '{pad.name}' to the {header.side} header "
+                            "after trying A* and fallback routing. Consider increasing the board "
+                            "size, margin, or header offset, or reducing the trace width."
+                        ),
+                        candidate_attempts,
+                    )
+                )
+                break
+
+            candidate_attempts.append(
+                _RouteAttempt(
+                    pad_name=pad.name,
+                    net=header.net,
+                    header_side=header.side,
+                    start=start,
+                    end=end,
+                    strategy=strategy,
+                    succeeded=True,
+                    path=tuple(path),
+                )
+            )
+            if strategy == "fallback":
+                candidate_warnings.append(
+                    f"Pad '{pad.name}' used fallback routing to the {header.side} header."
+                )
+            mitred_path = _apply_miters(path, obstacles=obstacles, config=config)
+            routed.extend(_segments_from_path(mitred_path, net=header.net))
+        else:
+            _validate_routes(routed, pads=pads, headers=headers, config=config)
+            successful_runs.append(
+                (
+                    len(candidate_warnings),
+                    _total_trace_length(routed),
+                    order_index,
+                    routed,
+                    candidate_warnings,
+                    candidate_attempts,
+                )
+            )
+
+    if successful_runs:
+        (
+            _warning_count,
+            _trace_length,
+            _order_index,
+            routed,
+            selected_warnings,
+            selected_attempts,
+        ) = min(successful_runs, key=lambda item: (item[0], item[1], item[2]))
+        if warnings is not None:
+            warnings.extend(selected_warnings)
+        _emit_debug_svg(
             pads=pads,
             headers=headers,
             traces=routed,
-            own_net=header.net,
+            attempts=selected_attempts,
             config=config,
+            debug_svg=debug_svg,
         )
-        path = _find_path(
-            start=_Point(pad.x, pad.y),
-            end=_Point(header.x, header.y),
-            pads=pads,
-            headers=headers,
-            obstacles=obstacles,
-            config=config,
-        )
-        if path is None:
-            raise ValueError(
-                f"Unable to route pad '{pad.name}' to the {header.side} header."
-            )
-            # raise Warning(
-            #     f"Unable to route pad '{pad.name}' to the {header.side} header. "
-            #     "Consider adjusting the breakout settings to create more space for routing."
-            # )
-        mitred_path = _apply_miters(path, obstacles=obstacles, config=config)
-        routed.extend(_segments_from_path(mitred_path, net=header.net))
+        return routed
 
-    _validate_routes(routed, pads=pads, headers=headers, config=config)
-    return routed
+    order_index, error, attempts = failures[-1]
+    _emit_debug_svg(
+        pads=pads,
+        headers=headers,
+        traces=[],
+        attempts=attempts,
+        config=config,
+        debug_svg=debug_svg,
+    )
+    raise error
 
 
 def _route_priority(pair: tuple[Pad, HeaderPin]) -> tuple[float, str, str]:
@@ -94,6 +206,11 @@ def _route_priority(pair: tuple[Pad, HeaderPin]) -> tuple[float, str, str]:
         header.side,
         pad.name,
     )
+
+
+def _route_length_priority(pair: tuple[Pad, HeaderPin]) -> tuple[float, str, str]:
+    pad, header = pair
+    return (-hypot(pad.x - header.x, pad.y - header.y), header.side, pad.name)
 
 
 def _build_obstacles(
@@ -500,9 +617,118 @@ def _validate_routes(
                 raise ValueError("Routing produced intersecting breakout traces.")
 
 
+def _find_fallback_path(
+    *,
+    start: _Point,
+    end: _Point,
+    header: HeaderPin,
+    obstacles: list[_Rect],
+    config: BreakoutConfig,
+) -> list[_Point] | None:
+    candidates: list[list[_Point]] = []
+    direct_path = [start, end]
+    if _path_uses_supported_angles(direct_path):
+        candidates.append(direct_path)
+    candidates.extend(_orthogonal_candidates(start, end))
+    candidates.extend(_diagonal_candidates(start, end))
+    candidates.extend(_corridor_candidates(start, end, header=header, config=config))
+
+    best_path: list[_Point] | None = None
+    best_score: tuple[float, int] | None = None
+    for candidate in candidates:
+        path = _dedupe_path(candidate)
+        if len(path) < 2 or not _path_uses_supported_angles(path):
+            continue
+        if not _path_is_clear(path, obstacles=obstacles, config=config):
+            continue
+        score = (_path_length(path), len(path))
+        if best_score is None or score < best_score:
+            best_score = score
+            best_path = path
+    return best_path
+
+
+def _orthogonal_candidates(start: _Point, end: _Point) -> list[list[_Point]]:
+    return [
+        [start, _Point(start.x, end.y), end],
+        [start, _Point(end.x, start.y), end],
+    ]
+
+
+def _diagonal_candidates(start: _Point, end: _Point) -> list[list[_Point]]:
+    dx = end.x - start.x
+    dy = end.y - start.y
+    abs_dx = abs(dx)
+    abs_dy = abs(dy)
+    if abs_dx <= EPSILON or abs_dy <= EPSILON:
+        return []
+
+    sign_x = 1.0 if dx >= 0 else -1.0
+    sign_y = 1.0 if dy >= 0 else -1.0
+    candidates: list[list[_Point]] = []
+
+    if abs_dx <= abs_dy:
+        candidates.append(
+            [
+                start,
+                _Point(start.x, end.y - (sign_y * abs_dx)),
+                end,
+            ]
+        )
+        candidates.append(
+            [
+                start,
+                _Point(end.x, start.y + (sign_y * abs_dx)),
+                end,
+            ]
+        )
+    if abs_dy <= abs_dx:
+        candidates.append(
+            [
+                start,
+                _Point(end.x - (sign_x * abs_dy), start.y),
+                end,
+            ]
+        )
+        candidates.append(
+            [
+                start,
+                _Point(start.x + (sign_x * abs_dy), end.y),
+                end,
+            ]
+        )
+
+    return candidates
+
+
+def _corridor_candidates(
+    start: _Point,
+    end: _Point,
+    *,
+    header: HeaderPin,
+    config: BreakoutConfig,
+) -> list[list[_Point]]:
+    corridor_offset = max(config.route_spacing_mm, config.trace_width_mm * 2.0)
+    candidates: list[list[_Point]] = []
+    if header.side == "N":
+        corridor_y = _clamp(end.y + corridor_offset, lower=0.0, upper=config.board_height_mm)
+        candidates.append([start, _Point(start.x, corridor_y), _Point(end.x, corridor_y), end])
+    elif header.side == "S":
+        corridor_y = _clamp(end.y - corridor_offset, lower=0.0, upper=config.board_height_mm)
+        candidates.append([start, _Point(start.x, corridor_y), _Point(end.x, corridor_y), end])
+    elif header.side == "E":
+        corridor_x = _clamp(end.x - corridor_offset, lower=0.0, upper=config.board_width_mm)
+        candidates.append([start, _Point(corridor_x, start.y), _Point(corridor_x, end.y), end])
+    else:
+        corridor_x = _clamp(end.x + corridor_offset, lower=0.0, upper=config.board_width_mm)
+        candidates.append([start, _Point(corridor_x, start.y), _Point(corridor_x, end.y), end])
+    return candidates
+
+
 def _segment_has_supported_angle(segment: TraceSegment) -> bool:
-    dx = abs(segment.end_x - segment.start_x)
-    dy = abs(segment.end_y - segment.start_y)
+    dx = abs(segment.start_x - segment.end_x)
+    dy = abs(segment.start_y - segment.end_y)
+    # Allow only horizontal, vertical, or 45-degree diagonal segments
     return dx <= EPSILON or dy <= EPSILON or abs(dx - dy) <= EPSILON
 
 
@@ -581,6 +807,18 @@ def _segment_is_clear(
     return True
 
 
+def _path_is_clear(
+    path: list[_Point],
+    *,
+    obstacles: list[_Rect],
+    config: BreakoutConfig,
+) -> bool:
+    return all(
+        _segment_is_clear(start, end, obstacles=obstacles, config=config)
+        for start, end in zip(path, path[1:])
+    )
+
+
 def _sample_segment(start: _Point, end: _Point) -> list[_Point]:
     length = _distance(start, end)
     if length <= EPSILON:
@@ -607,6 +845,10 @@ def _distance(start: _Point, end: _Point) -> float:
     return hypot(end.x - start.x, end.y - start.y)
 
 
+def _path_length(path: list[_Point]) -> float:
+    return sum(_distance(start, end) for start, end in zip(path, path[1:]))
+
+
 def _is_collinear(first: _Point, second: _Point, third: _Point) -> bool:
     return (
         abs((second.x - first.x) * (third.y - second.y) - (second.y - first.y) * (third.x - second.x))
@@ -629,9 +871,162 @@ def _same_point(first: _Point, second: _Point) -> bool:
     return abs(first.x - second.x) <= EPSILON and abs(first.y - second.y) <= EPSILON
 
 
+def _path_uses_supported_angles(path: list[_Point]) -> bool:
+    return all(
+        _segment_has_supported_angle(
+            TraceSegment(
+                start_x=start.x,
+                start_y=start.y,
+                end_x=end.x,
+                end_y=end.y,
+                net="",
+            )
+        )
+        for start, end in zip(path, path[1:])
+    )
+
+
 def _clamp(value: float, *, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
 def _quantize(value: float) -> float:
     return round(value, 3)
+
+
+def _total_trace_length(traces: list[TraceSegment]) -> float:
+    return sum(
+        hypot(trace.end_x - trace.start_x, trace.end_y - trace.start_y)
+        for trace in traces
+    )
+
+
+def _emit_debug_svg(
+    *,
+    pads: list[Pad] | tuple[Pad, ...],
+    headers: list[HeaderPin] | tuple[HeaderPin, ...],
+    traces: list[TraceSegment],
+    attempts: list[_RouteAttempt],
+    config: BreakoutConfig,
+    debug_svg: list[str] | None,
+) -> None:
+    if not config.debug_routing and debug_svg is None:
+        return
+
+    svg_text = _render_debug_svg(
+        pads=pads,
+        headers=headers,
+        traces=traces,
+        attempts=attempts,
+        config=config,
+    )
+    if debug_svg is not None:
+        debug_svg.clear()
+        debug_svg.append(svg_text)
+    if config.debug_routing and config.routing_debug_output_path is not None:
+        config.routing_debug_output_path.parent.mkdir(parents=True, exist_ok=True)
+        config.routing_debug_output_path.write_text(svg_text, encoding="utf-8")
+
+
+def _render_debug_svg(
+    *,
+    pads: list[Pad] | tuple[Pad, ...],
+    headers: list[HeaderPin] | tuple[HeaderPin, ...],
+    traces: list[TraceSegment],
+    attempts: list[_RouteAttempt],
+    config: BreakoutConfig,
+) -> str:
+    scale = 16
+    margin = 16
+    width = int((config.board_width_mm * scale) + (margin * 2))
+    height = int((config.board_height_mm * scale) + (margin * 2))
+    corner_radius = max(config.rounded_corner_radius_mm * scale, 0)
+    trace_width = max(config.trace_width_mm * scale, 2.0)
+
+    def sx(value: float) -> float:
+        return margin + (value * scale)
+
+    def sy(value: float) -> float:
+        return margin + (value * scale)
+
+    obstacle_markup = []
+    for obstacle in _build_obstacles(
+        pads=pads,
+        headers=headers,
+        traces=traces,
+        own_net="",
+        config=config,
+    ):
+        obstacle_markup.append(
+            (
+                f'<rect x="{sx(obstacle.min_x):.2f}" y="{sy(obstacle.min_y):.2f}" '
+                f'width="{max((obstacle.max_x - obstacle.min_x) * scale, 1):.2f}" '
+                f'height="{max((obstacle.max_y - obstacle.min_y) * scale, 1):.2f}" '
+                'fill="#ef4444" fill-opacity="0.12" stroke="#ef4444" stroke-opacity="0.35" '
+                'stroke-width="1" />'
+            )
+        )
+
+    attempt_markup = []
+    for attempt in attempts:
+        points = attempt.path or (attempt.start, attempt.end)
+        path_text = " ".join(f"{sx(point.x):.2f},{sy(point.y):.2f}" for point in points)
+        color = "#2563eb"
+        dash = ""
+        if attempt.strategy == "fallback":
+            color = "#d97706"
+            dash = ' stroke-dasharray="6 4"'
+        elif not attempt.succeeded:
+            color = "#dc2626"
+            dash = ' stroke-dasharray="3 3"'
+        attempt_markup.append(
+            f'<polyline points="{path_text}" fill="none" stroke="{color}" stroke-width="2"{dash} />'
+        )
+
+    trace_markup = []
+    for trace in traces:
+        trace_markup.append(
+            (
+                f'<line x1="{sx(trace.start_x):.2f}" y1="{sy(trace.start_y):.2f}" '
+                f'x2="{sx(trace.end_x):.2f}" y2="{sy(trace.end_y):.2f}" '
+                f'stroke="#111827" stroke-width="{trace_width:.2f}" stroke-linecap="round" />'
+            )
+        )
+
+    pad_markup = [
+        (
+            f'<circle cx="{sx(pad.x):.2f}" cy="{sy(pad.y):.2f}" '
+            f'r="{max(((max(pad.width_mm, pad.height_mm) / 2.0) * scale), 3):.2f}" '
+            'fill="#0f766e" fill-opacity="0.18" stroke="#0f766e" stroke-width="1.5" />'
+        )
+        for pad in pads
+    ]
+    header_markup = [
+        (
+            f'<circle cx="{sx(header.x):.2f}" cy="{sy(header.y):.2f}" '
+            f'r="{max((config.header_pad_diameter_mm / 2.0) * scale, 3):.2f}" '
+            'fill="#7c3aed" fill-opacity="0.12" stroke="#7c3aed" stroke-width="1.5" />'
+        )
+        for header in headers
+    ]
+
+    outline = (
+        f'<rect x="{margin}" y="{margin}" '
+        f'width="{config.board_width_mm * scale:.2f}" '
+        f'height="{config.board_height_mm * scale:.2f}" '
+        f'rx="{corner_radius:.2f}" ry="{corner_radius:.2f}" '
+        'fill="white" stroke="#111827" stroke-width="2" />'
+    )
+    return "\n".join(
+        [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+            '<rect width="100%" height="100%" fill="#f8fafc" />',
+            outline,
+            *obstacle_markup,
+            *attempt_markup,
+            *trace_markup,
+            *pad_markup,
+            *header_markup,
+            "</svg>",
+        ]
+    )

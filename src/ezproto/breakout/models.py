@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import cos, hypot, pi, sin, sqrt
 from pathlib import Path
+import re
 from typing import Any, Iterable, Iterator
 
 # The order in which sides are processed and rendered, if selected.
@@ -28,10 +29,18 @@ class BreakoutConfig:
     header_pad_diameter_mm: float = 1.8
     trace_width_mm: float = 0.25
     rounded_corner_radius_mm: float = 0.0
+    debug_routing: bool = False
+    routing_debug_output_path: Path | None = None
 
     def __post_init__(self) -> None:
         footprint_path = Path(_normalize_path_text(self.footprint_path)).expanduser()
         object.__setattr__(self, "footprint_path", footprint_path)
+        if self.routing_debug_output_path is not None:
+            object.__setattr__(
+                self,
+                "routing_debug_output_path",
+                Path(_normalize_path_text(self.routing_debug_output_path)).expanduser(),
+            )
         object.__setattr__(
             self,
             "board_name",
@@ -45,10 +54,7 @@ class BreakoutConfig:
         cleaned = (name or "").strip().replace('"', "'")
         if cleaned:
             return cleaned
-        if footprint_path.suffix.lower() == ".kicad_mod":
-            source_name = footprint_path.stem
-        else:
-            source_name = footprint_path.name
+        source_name = _default_name_from_footprint_path(footprint_path)
         source_name = source_name.replace("_", " ").strip()
         return source_name or "Breakout Board"
 
@@ -294,6 +300,7 @@ class ParsedFootprint:
 
     path: Path
     name: str
+    library_link: str
     tree: Any
     pads: tuple[Pad, ...]
     bounds: Bounds
@@ -312,6 +319,8 @@ class BreakoutBoard:
     pads: tuple[Pad, ...]
     headers: tuple[HeaderPin, ...]
     traces: tuple[TraceSegment, ...]
+    routing_warnings: tuple[str, ...] = ()
+    routing_debug_svg: str | None = None
 
     @property
     def net_names(self) -> tuple[str, ...]:
@@ -327,6 +336,28 @@ def _normalize_path_text(path: Path | str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1].strip()
     return value
+
+
+def _default_name_from_footprint_path(path: Path | str) -> str:
+    raw_value = _normalize_path_text(path)
+    kicad_mod_match = re.search(r"([^\\/:\"]+?)(?:\.kicad_mod)$", raw_value, flags=re.IGNORECASE)
+    if kicad_mod_match:
+        return kicad_mod_match.group(1)
+
+    pretty_match = re.search(
+        r"\.pretty(?:(?::|[\\/]))([^\\/:\"]+?)(?:\.kicad_mod)?$",
+        raw_value,
+        flags=re.IGNORECASE,
+    )
+    if pretty_match:
+        return pretty_match.group(1)
+
+    footprint_path = Path(raw_value)
+    if footprint_path.suffix.lower() == ".pretty":
+        return footprint_path.stem
+    if footprint_path.suffix.lower() == ".kicad_mod":
+        return footprint_path.stem
+    return footprint_path.name
 
 
 def _sample_circle(

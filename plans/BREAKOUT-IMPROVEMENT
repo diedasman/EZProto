@@ -1,0 +1,84 @@
+
+## Issues Causing Friction
+
+### 1. Routing is strict and can fail silently/hard
+
+The current A* will raise `ValueError` if any path can't be found. This is correct behavior, but frustrating for users.
+
+**Fix suggestion:**
+- In `router.py:route()`, change the failure to a warning + fallback straight-line trace (or at least a clear message).
+- Add a `debug_routing=True` flag that dumps an SVG of the obstacle map + attempted paths (using matplotlib or pure SVG – keep it optional).
+
+---
+
+### 2. Router code complexity
+
+The `_candidate_axis_values` and `_build_nodes / _build_adjacency` logic is the heart of the router.
+
+Common failure modes seen in similar routers:
+- Too aggressive obstacle inflation → no paths even when visually possible
+- No via support (likely single-layer)
+- Priority ordering (`_route_priority`) is good (shortest first), but routing longest traces first is sometimes more reliable
+
+**Quick improvement (add after current sorting):**
+
+```python
+# Try routing longest traces first (often more reliable)
+pairs = sorted(pairs, key=lambda p: -hypot(p[0].x - p[1].x, p[0].y - p[1].y))
+````
+
+---
+
+### 3. Footprint import rendering (`_render_imported_footprint` in `kicad.py`)
+
+This is likely the #1 source of “it generates but looks broken in KiCad” issues.
+
+KiCad footprints have many optional nodes. While pads are parsed correctly, re-serialization may lose attributes (layers, clearance overrides, etc.).
+
+**Suggestion:**
+Instead of manually re-rendering the footprint:
+
+* Include the original footprint as a library reference
+* Place it at the origin
+* Add custom pads/traces on top
+
+This approach is more robust and aligns with how most parametric tools handle footprints.
+
+---
+
+### 4. UI / Workflow friction for breakout
+
+* Users must select a `.kicad_mod` file every time
+  → Add a recent-footprints list or a small built-in library (e.g. QFN, SOP, Arduino Nano)
+
+* No auto-sizing
+  → Add an **Auto-fit** option:
+
+  * Calculate board size from footprint bounds + headers + margin
+
+* Preview limitations
+  → Ensure `render_breakout_preview` shows routed traces, not just pads
+
+---
+
+## Recommended Next Steps (in order)
+
+1. Fix routing robustness
+
+   * Add fallback behavior
+   * Improve error messaging
+
+2. Improve breakout rendering in `kicad.py`
+
+   * Use footprint references instead of full re-serialization
+
+3. Add user-facing error modals in `app.py`
+
+4. Add example workflows to README
+
+   * Include screenshots or GIFs
+   * Example: ESP32 or RP2040 module → headers
+
+5. Release **v0.2.0** once breakout is stable
+
+---

@@ -87,6 +87,8 @@ class PreviewRenderTests(unittest.TestCase):
         self.assertIn("corners 2 mm", preview)
         self.assertIn("N:3", preview)
         self.assertIn("S:3", preview)
+        self.assertIn("routing clean", preview)
+        self.assertRegex(preview, r"[./\\\\|+-]")
 
 
 if __name__ == "__main__":

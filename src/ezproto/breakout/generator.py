@@ -31,7 +31,17 @@ def generate_breakout(config: BreakoutConfig) -> BreakoutBoard:
         for pad in footprint.pads
     )
     headers = tuple(generate_headers(placed_pads, config))
-    traces = tuple(route(placed_pads, headers, config=config))
+    routing_warnings: list[str] = []
+    routing_debug_svg: list[str] = []
+    traces = tuple(
+        route(
+            placed_pads,
+            headers,
+            config=config,
+            warnings=routing_warnings,
+            debug_svg=routing_debug_svg if config.debug_routing else None,
+        )
+    )
     _validate_generated_geometry(
         config=config,
         pads=placed_pads,
@@ -47,6 +57,8 @@ def generate_breakout(config: BreakoutConfig) -> BreakoutBoard:
         pads=placed_pads,
         headers=headers,
         traces=traces,
+        routing_warnings=tuple(routing_warnings),
+        routing_debug_svg=routing_debug_svg[0] if routing_debug_svg else None,
     )
 
 

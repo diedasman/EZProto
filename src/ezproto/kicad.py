@@ -274,6 +274,7 @@ def _render_imported_footprint(
 ) -> list[str]:
     footprint_node = deepcopy(board.footprint.tree)
     _remove_children(footprint_node, {"version", "generator", "generator_version"})
+    _upsert_footprint_library_link(footprint_node, board.footprint.library_link)
     _upsert_footprint_at(
         footprint_node,
         x_pos=board.footprint_origin_x,
@@ -459,6 +460,13 @@ def _upsert_footprint_at(node: list[Any], *, x_pos: float, y_pos: float) -> None
         return
     insert_index = 2 if len(node) >= 2 else len(node)
     node.insert(insert_index, replacement)
+
+
+def _upsert_footprint_library_link(node: list[Any], library_link: str) -> None:
+    if len(node) > 1 and isinstance(node[1], Atom):
+        node[1] = atom(library_link, quoted=True)
+        return
+    node.insert(1, atom(library_link, quoted=True))
 
 
 def _upsert_pad_net(node: list[Any], *, net_number: int, net_name: str) -> None:

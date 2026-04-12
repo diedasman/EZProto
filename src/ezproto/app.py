@@ -90,7 +90,6 @@ BREAKOUT_INPUT_IDS = {
     "breakout_board_width",
     "breakout_board_height",
     "breakout_pitch",
-    "breakout_rounded_corners",
     "breakout_mount_hole",
     "breakout_trace_width",
     "breakout_header_offset",
@@ -110,8 +109,6 @@ BREAKOUT_DFM_CHECKBOX_IDS = {
     "breakout_zip_output",
 }
 
-# PCBWAY_ORDER_URL = "https://www.pcbway.com/orderonline.aspx"
-
 PCBWAY_ORDER_URL = "https://www.pcbway.com/QuickOrderOnline.aspx;"
 
 class ResetFormConfirmationScreen(ModalScreen[bool]):
@@ -120,10 +117,10 @@ class ResetFormConfirmationScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Container(id="reset_form_overlay"):
             with Vertical(id="reset_form_dialog"):
-                yield Static("Reset protoboard form?", id="reset_form_dialog_title")
+                yield Static("Reset board form?", id="reset_form_dialog_title")
                 yield Static(
                     (
-                        "Your current protoboard values will stay untouched unless you "
+                        "Your current board values will stay untouched unless you "
                         "confirm. Saved users and generated files will not be deleted."
                     ),
                     id="reset_form_dialog_message",
@@ -396,34 +393,65 @@ class ProtoboardApp(App[None]):
                                         id="breakout_board_name",
                                         placeholder="Defaults to the footprint name",
                                     )
-                                    yield Button(
+                                    
+                            
+                            with Horizontal(id="breakout_function_buttons_row"):
+                                yield Button(
                                         "Generate Breakout",
                                         variant="primary",
                                         id="generate_breakout",
                                     )
+                                yield Button("Make it with PCBWay!",variant="default", id="breakout_pcbway")
+                                yield Button("Reset form", variant="error", id="breakout_reset_form")
 
                     with Vertical(id="breakout_summary_panel", classes="panel"):
                         yield Static(id="breakout_summary")
-                        yield Static(id="breakout_footprint_summary")
+                        # yield Static(id="breakout_footprint_summary")
                         with Horizontal(id="breakout_preview_row"):
                             yield Static(id="breakout_footprint_preview")
                             yield Static(id="breakout_preview")
                         yield Static(id="breakout_status", classes="status_box")
 
-            with TabPane("KEYBOARD", id="keyboard"):
-                with Container(id="keyboard_layout"):
-                    with Vertical(id="keyboard_panel", classes="panel"):
+            # with TabPane("KEYBOARD", id="keyboard"):
+            #     with Container(id="keyboard_layout"):
+            #         with Vertical(id="keyboard_panel", classes="panel"):
                         
-                        yield Label("Board name", classes="field_label")
-                        yield Input(placeholder="Keyboard Board", id="keyboard_board_name")
-                        yield Static("Keyboard layout generation coming soon!", id="keyboard_placeholder")
+            #             yield Label("Board name", classes="field_label")
+            #             yield Input(placeholder="Keyboard Board", id="keyboard_board_name")
+            #             yield Static("Keyboard layout generation coming soon!", id="keyboard_placeholder")
 
-                    with Vertical(id="keyboard_summary_panel", classes="panel"):
-                        yield Static(id="keyboard_summary")
+            #         with Vertical(id="keyboard_summary_panel", classes="panel"):
+            #             yield Static(id="keyboard_summary")
 
 
             with TabPane("ENCLOSURE", id="enclosure"):
-                pass
+                with Container(id="enclosure_layout"):
+                    with Vertical(id="enclosure_parameters_panel", classes="panel"):
+                        # yield Static("Enclosure generation coming soon!", id="enclosure_placeholder")
+                        with Container(id="enclosure_form"):
+                            # yield Label("Enclosure dimensions and features coming soon!", id="enclosure_form_placeholder")
+
+                            with Horizontal(id="pcb_file_input_row"):
+                                yield Label("PCB file path", classes="field_label")
+                                yield Input(id="pcb_file_path", placeholder="Path to a .step/.stp file")
+                            
+                            with Horizontal(id="enclosure_height_row"):
+                                yield Label("Enclosure height (mm)", classes="field_label")
+                                yield Input(id="enclosure_height", placeholder="Enclosure height (mm)")
+
+                            with Horizontal(id="wall_thickness_row"):
+                                yield Label("Wall thickness (mm)", classes="field_label")
+                                yield Input(id="enclosure_wall_thickness", placeholder="Wall thickness (mm)")
+
+                            with Horizontal(id="enclosure_dfm_options_row"):
+                                yield Label("DFM export", classes="field_label")
+                                with Horizontal(id="enclosure_dfm_options"):
+                                    yield Checkbox("STEP", id="enclosure_generate_gerbers")
+                                    # Additional enclosure-specific DFM options can go here
+                                    yield Checkbox("STL", id="enclosure_generate_stl")
+
+                    with Vertical(id="enclosure_summary_panel", classes="panel"):
+                        yield Static(id="enclosure_summary")
 
             with TabPane("SETTINGS", id="settings"):
                 with Vertical(id="settings_layout"):
@@ -485,7 +513,7 @@ class ProtoboardApp(App[None]):
         self.query_one("#welcome_shortcuts", Static).border_title = "Quick Keys"
         self.query_one("#board_preview", Static).border_title = "Board Preview"
         self.query_one("#breakout_summary", Static).border_title = "Breakout Details"
-        self.query_one("#breakout_footprint_summary", Static).border_title = "Footprint Details"
+        # self.query_one("#breakout_footprint_summary", Static).border_title = "Footprint Details"
         self.query_one("#breakout_footprint_preview", Static).border_title = "Footprint Preview"
         self.query_one("#breakout_preview", Static).border_title = "Breakout Preview"
         self.query_one("#summary", Static).border_title = "Board Details"
@@ -494,6 +522,9 @@ class ProtoboardApp(App[None]):
         self.query_one("#include_drill", Checkbox).value = True
         self.query_one("#breakout_include_drill", Checkbox).value = True
         self.query_one("#breakout_trace_width", Input).value = "0.25"
+        self.query_one("#enclosure_parameters_panel", Vertical).border_title = "Enclosure Inputs"
+        self.query_one("#enclosure_summary_panel", Vertical).border_title = "Enclosure Summary"
+
         self._set_dfm_option_controls_enabled(
             self.query_one("#generate_gerbers", Checkbox).value
         )
@@ -522,13 +553,19 @@ class ProtoboardApp(App[None]):
         if event.button.id == "generate":
             self.action_generate()
             return
-        if event.button.id == "pcbway":
+        if event.button.id == "pcbway" or event.button.id == "breakout_pcbway":
             self._open_pcbway_quick_quote()
             return
         if event.button.id == "reset_form":
             self.push_screen(
                 ResetFormConfirmationScreen(),
                 self._handle_reset_form_confirmation,
+            )
+            return
+        if event.button.id == "breakout_reset_form":
+            self.push_screen(
+                ResetFormConfirmationScreen(),
+                self._handle_breakout_reset_form_confirmation,
             )
             return
         if event.button.id == "generate_breakout":
@@ -553,13 +590,23 @@ class ProtoboardApp(App[None]):
     def _handle_reset_form_confirmation(self, confirmed: bool) -> None:
         if not confirmed:
             self._set_proto_status(
-                "Reset cancelled. Your protoboard inputs are still in place.",
+                "Reset cancelled. Your board inputs are still in place.",
                 error=False,
             )
             return
-
+        
         self._reset_protoboard_form()
 
+    def _handle_breakout_reset_form_confirmation(self, confirmed: bool) -> None:
+        if not confirmed:
+            self._set_breakout_status(
+                "Reset cancelled. Your board inputs are still in place.",
+                error=False,
+            )
+            return
+        
+        self._reset_breakout_form()
+    
     def _reset_protoboard_form(self) -> None:
         for widget_id in PROTO_INPUT_IDS:
             self.query_one(f"#{widget_id}", Input).value = ""
@@ -576,6 +623,28 @@ class ProtoboardApp(App[None]):
         self.query_one("#board_name", Input).focus()
         self._set_proto_status("Protoboard form reset.", error=False)
 
+    def _reset_breakout_form(self) -> None:
+        for widget_id in BREAKOUT_INPUT_IDS:
+            self.query_one(f"#{widget_id}", Input).value = ""
+
+        rounded_corners = self.query_one("#breakout_rounded_corners", Select)
+        if rounded_corners.value != Select.BLANK:
+            rounded_corners.value = Select.BLANK
+
+        for checkbox_id in BREAKOUT_CHECKBOX_IDS:
+            self.query_one(f"#{checkbox_id}", Checkbox).value = False
+
+        self.query_one("#breakout_side_n", Checkbox).value = True
+        self.query_one("#breakout_side_s", Checkbox).value = True
+
+        self.query_one("#breakout_generate_gerbers", Checkbox).value = False
+        self.query_one("#breakout_include_drill", Checkbox).value = True
+        self.query_one("#breakout_zip_output", Checkbox).value = False
+        self._set_breakout_dfm_option_controls_enabled(False)
+        self._refresh_breakout_preview()
+        self.query_one("#breakout_footprint_path", Input).focus()
+        self._set_breakout_status("Breakout form reset.", error=False)
+    
     def _open_pcbway_quick_quote(self) -> None:
         self.open_url(PCBWAY_ORDER_URL)
         self._set_proto_status("Opened PCBWay Quick Quote in your browser.", error=False)
@@ -1011,7 +1080,7 @@ class ProtoboardApp(App[None]):
 
     def _refresh_breakout_preview(self) -> None:
         footprint_preview = self.query_one("#breakout_footprint_preview", Static)
-        footprint_summary = self.query_one("#breakout_footprint_summary", Static)
+        # footprint_summary = self.query_one("#breakout_footprint_summary", Static)
         summary = self.query_one("#breakout_summary", Static)
         preview = self.query_one("#breakout_preview", Static)
         status = self.query_one("#breakout_status", Static)
@@ -1021,30 +1090,30 @@ class ProtoboardApp(App[None]):
 
         if not footprint_path:
             footprint_preview.update("Select a footprint to preview its pads and bounds.")
-            footprint_summary.update("Waiting for valid footprint input.\n\nFootprint path is required.")
+            # footprint_summary.update("Waiting for valid footprint input.\n\nFootprint path is required.")
         else:
             try:
                 footprint = load_footprint(Path(footprint_path))
             except ValueError as error:
                 footprint_preview.update(f"Waiting for a valid footprint.\n\n{error}")
-                footprint_summary.update(f"Waiting for valid footprint input.\n\n{error}")
+                # footprint_summary.update(f"Waiting for valid footprint input.\n\n{error}")
             else:
                 footprint_preview.update(render_footprint_preview(footprint))
-                footprint_summary.update(
-                    "\n".join(
-                        [
-                            f"Footprint: {footprint.path}",
-                            f"Footprint name: {footprint.name}",
-                            f"Logical pads: {len(footprint.pads)}",
-                            f"Physical pads: {footprint.physical_pad_count}",
-                            f"NPTH ignored: {footprint.npth_pad_count}",
-                            (
-                                "Footprint bounds: "
-                                f"{footprint.bounds.width_mm:.2f} mm x {footprint.bounds.height_mm:.2f} mm"
-                            ),
-                        ]
-                    )
-                )
+                # footprint_summary.update(
+                #     "\n".join(
+                #         [
+                #             f"Footprint: {footprint.path}",
+                #             f"Footprint name: {footprint.name}",
+                #             f"Logical pads: {len(footprint.pads)}",
+                #             f"Physical pads: {footprint.physical_pad_count}",
+                #             f"NPTH ignored: {footprint.npth_pad_count}",
+                #             (
+                #                 "Footprint bounds: "
+                #                 f"{footprint.bounds.width_mm:.2f} mm x {footprint.bounds.height_mm:.2f} mm"
+                #             ),
+                #         ]
+                #     )
+                # )
 
         try:
             config = self._read_breakout_config()

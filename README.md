@@ -51,14 +51,57 @@ The app is focused on the `PROTOBOARD` workflow:
 ## Requirements
 
 - Python `3.12` or newer
-- `pip`
+- `pipx` for the recommended user install
 - A terminal that can run Textual apps for CLI mode
 - A modern web browser for browser mode
 - KiCad is not required to generate files, but you will want KiCad installed to open and inspect the generated `.kicad_pcb` files
 
 ## Installation
 
-### 1. Clone the repository
+### Recommended User Install
+
+Install EZProto from GitHub with `pipx`:
+
+```bash
+pipx install git+https://github.com/diedasman/EZProto.git
+```
+
+Then run it from any terminal:
+
+```bash
+ezproto
+```
+
+Browser mode is available with:
+
+```bash
+ezproto --web
+```
+
+`pipx` installs Python command-line apps into isolated environments and exposes their commands globally, which keeps EZProto separate from your system Python packages.
+
+If `pipx` is not installed yet, install it first:
+
+```bash
+python -m pip install --user pipx
+python -m pipx ensurepath
+```
+
+Close and reopen your terminal after `ensurepath`, then run the EZProto install command above.
+
+### Future PyPI Install
+
+After EZProto is published to PyPI, the install command will become:
+
+```bash
+pipx install ezproto
+```
+
+### Development Install
+
+Use this path only if you want to work on the source code.
+
+#### 1. Clone the repository
 
 ```powershell
 git clone https://github.com/diedasman/EZProto.git
@@ -67,9 +110,9 @@ git clone https://github.com/diedasman/EZProto.git
 cd EZProto
 ```
 
-Important: every install command below assumes your terminal is inside the project root, the folder that contains `pyproject.toml`.
+Important: every development install command below assumes your terminal is inside the project root, the folder that contains `pyproject.toml`.
 
-### 2. Create a virtual environment
+#### 2. Create a virtual environment
 
 Windows PowerShell:
 
@@ -98,7 +141,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3. Install the project
+#### 3. Install the project
 
 ```powershell
 python -m pip install --upgrade pip
@@ -113,12 +156,6 @@ For development and tests, install the dev extra:
 
 ```bash
 python -m pip install -e ".[dev]"
-```
-
-Browser mode is available immediately after install:
-
-```powershell
-ezproto --web
 ```
 
 #### 4. Summary
@@ -191,7 +228,19 @@ If you already used an older repo-root layout, EZProto will migrate that data to
 
 ## Updating EZProto
 
-If you installed EZProto from the repository as documented above, you can update it with:
+If you installed EZProto with `pipx`, update it with:
+
+```powershell
+pipx upgrade ezproto
+```
+
+If you installed from GitHub before a PyPI release and `pipx upgrade` cannot resolve the source, reinstall from GitHub:
+
+```powershell
+pipx reinstall ezproto --spec git+https://github.com/diedasman/EZProto.git
+```
+
+For development installs from a local git checkout, you can update with:
 
 ```powershell
 ezproto update
@@ -204,7 +253,7 @@ The update command:
 - runs `git pull --ff-only`
 - refreshes the editable install with your current Python environment
 
-If EZProto was not installed from a git checkout, re-clone the repository and reinstall with:
+If your development install was not backed by a git checkout, re-clone the repository and reinstall with:
 
 ```powershell
 python -m pip install -e .

@@ -1,2 +1,346 @@
-# EZProto
-EZProto is a developer-focused tool for generating custom prototyping PCBs and breakout boards directly from parameters. It allows you to define board dimensions, hole grids, and component footprints (.kicad_mod), then automatically produces ready-to-manufacture outputs including PCB layouts and Gerber files.
+```
+███████╗███████╗██████╗ ██████╗  ██████╗ ████████╗ ██████╗
+██╔════╝╚══███╔╝██╔══██╗██╔══██╗██╔═══██╗╚══██╔══╝██╔═══██╗
+█████╗    ███╔╝ ██████╔╝██████╔╝██║   ██║   ██║   ██║   ██║
+██╔══╝   ███╔╝  ██╔═══╝ ██╔══██╗██║   ██║   ██║   ██║   ██║
+███████╗███████╗██║     ██║  ██║╚██████╔╝   ██║   ╚██████╔╝
+╚══════╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝
+```
+
+EZProto is a Textual-based protoboard generator that can run either as a native terminal app or as the same Textual app served in a browser via `ezproto --web`.
+
+**A quick shortcut button is included for fabrication at [PCBWay](https://www.pcbway.com/QuickOrderOnline.aspx;)**
+
+PCBWay is a professional PCB manufacturing and prototyping service that offers fabrication, assembly, solder paste stencils, CNC machining, 3D printing, and other rapid prototyping services. Their platform makes it easy for engineers, makers, and developers to turn electronic designs into physical boards and prototypes, from small experimental PCBs to more advanced manufacturing projects.
+
+EZProto is proudly sponsored by [PCBWay](https://www.pcbway.com/).
+
+![EZProto](assets/home.png)
+
+The app is focused on the `PROTOBOARD` workflow:
+
+- Generate plated through-hole pad grids
+- Add optional corner mounting holes
+- Create square or rounded board outlines
+- Optionally export a simple Gerber + drill fabrication package
+- Save default theme choice, and generated-board history
+
+![Settings](assets/user.png)
+
+## Features
+
+- Dual launch modes:
+  - Native Textual terminal UI via `ezproto`
+  - Browser mode via `ezproto --web`
+- Native KiCad PCB output in text-based `.kicad_pcb` format
+- Parametric board sizing from rows, columns, pitch, and margins
+- PTH drill and pad diameter control
+- Optional corner mounting holes
+- Optional rounded corners with geometry validation
+- Terminal-friendly board preview inside the app
+- Browser mode via `textual-serve` with automatic browser launch
+- User profiles and app state stored in a per-user EZProto data directory
+- Optional DFM export with Gerber, drill, and ZIP packaging options
+- `Make it with PCBWay!` shortcut to PCBWay Quick Quote
+- `Reset form` confirmation flow before clearing protoboard inputs
+
+![Example KiCAD Output](assets/protoPCB.png)
+![Example KiCAD Output](assets/proto3D.png)
+
+
+## Requirements
+
+- Python `3.12` or newer
+- `pip`
+- A terminal that can run Textual apps for CLI mode
+- A modern web browser for browser mode
+- KiCad is not required to generate files, but you will want KiCad installed to open and inspect the generated `.kicad_pcb` files
+
+## Installation
+
+### 1. Clone the repository
+
+```powershell
+git clone https://github.com/diedasman/EZProto.git
+```
+```powershell
+cd EZProto
+```
+
+Important: every install command below assumes your terminal is inside the project root, the folder that contains `pyproject.toml`.
+
+### 2. Create a virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+```
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Windows Command Prompt:
+
+```bat
+python -m venv .venv
+```
+```bat
+.venv\Scripts\activate.bat
+```
+
+Linux / macOS:
+
+```bash
+python3 -m venv .venv
+```
+```bash
+source .venv/bin/activate
+```
+
+### 3. Install the project
+
+```powershell
+python -m pip install --upgrade pip
+```
+```powershell
+python -m pip install -e .
+```
+
+This installs the `ezproto` command from the local source tree in editable mode.
+
+For development and tests, install the dev extra:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Browser mode is available immediately after install:
+
+```powershell
+ezproto --web
+```
+
+#### 4. Summary
+
+```bash
+git clone https://github.com/diedasman/EZProto.git
+cd EZProto
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -e .
+ezproto
+```
+
+
+## VS Code Setup
+
+If you are opening the project in VS Code, select the virtual environment interpreter after installation:
+
+1. Open the command palette.
+2. Run `Python: Select Interpreter`.
+3. Choose `.venv\Scripts\python.exe` on Windows or `.venv/bin/python` on macOS/Linux.
+
+This helps VS Code resolve the `textual` imports and the local `src` package correctly.
+
+## How To Run
+
+### CLI mode
+
+From anywhere after installation:
+
+```powershell
+ezproto
+```
+
+Alternative:
+
+```powershell
+python -m ezproto
+```
+
+### Web mode
+
+Serve the Textual app in your browser:
+
+```powershell
+ezproto --web
+```
+
+Alternative:
+
+```powershell
+python -m ezproto --web
+```
+
+Browser mode serves the Textual app itself on `http://localhost:8000` by default and opens your browser automatically.
+
+To bind a different interface or port:
+
+```powershell
+ezproto --web --host 0.0.0.0 --port 8000
+```
+
+You do not need to run EZProto from the project root. By default it stores local data in a per-user application data folder:
+
+- Windows: `%APPDATA%\EZProto`
+- macOS: `~/Library/Application Support/EZProto`
+- Linux: `$XDG_DATA_HOME/EZProto` or `~/.local/share/EZProto`
+
+If you already used an older repo-root layout, EZProto will migrate that data to the new location the first time it starts.
+
+## Updating EZProto
+
+If you installed EZProto from the repository as documented above, you can update it with:
+
+```powershell
+ezproto update
+```
+
+The update command:
+
+- verifies that EZProto is backed by a git checkout
+- stops if that checkout has local uncommitted changes
+- runs `git pull --ff-only`
+- refreshes the editable install with your current Python environment
+
+If EZProto was not installed from a git checkout, re-clone the repository and reinstall with:
+
+```powershell
+python -m pip install -e .
+```
+
+## First-Time Setup In The App
+
+**When the app opens:**
+
+1. Go to the `SETTINGS` tab.
+2. Set a custom output directory if you do not want the built-in default path.
+3. Pick a Textual theme if you want.
+4. Save the workspace settings.
+5. Return to `PROTOBOARD`.
+
+EZProto restores the saved workspace settings on the next launch.
+
+## Using The PROTOBOARD Tab
+
+Fill in the board parameters:
+
+- `Board name`
+- `Columns`
+- `Rows`
+- `Pitch (mm)`
+- `PTH drill (mm)`
+- `Pad diameter (mm)`
+- `Mount hole (mm)`
+- `Edge margin (mm)`
+- `Rounded corners`
+
+You can also use the pitch preset buttons:
+
+- `1 mm`
+- `2 mm`
+- `2.54 mm`
+- `5.08 mm`
+
+If `Mount hole` is set to `0`, corner mounting holes are disabled.
+
+If `Generate Gerbers` is enabled before pressing `Generate PCB`, EZProto will create Gerber outputs in addition to the KiCad board file.
+
+Optional DFM export controls:
+
+- `Include drill file` adds the plated drill file to the DFM package.
+- `.ZIP archive` creates a `*_DFM.zip` archive next to the DFM folder.
+
+Protoboard actions:
+
+- `Generate PCB` writes the KiCad board file and optional DFM outputs.
+- `Make it with PCBWay!` opens PCBWay Quick Quote in your browser.
+- `Reset form` opens a confirmation screen before clearing the current protoboard inputs.
+
+The right side of the `PROTOBOARD` tab shows:
+
+- A summary of the current board parameters
+- The resolved output paths
+- A terminal-friendly board preview
+- Status messages after generation
+
+## Generated Output Structure
+
+For a board named `My Proto Board`, EZProto writes:
+
+```text
+<configured output directory>/
+  My Proto Board/
+    My_Proto_Board.kicad_pcb
+    My_Proto_Board_DFM/
+      My_Proto_Board_F_Cu.gbr
+      My_Proto_Board_B_Cu.gbr
+      My_Proto_Board_F_Mask.gbr
+      My_Proto_Board_B_Mask.gbr
+      My_Proto_Board_Edge_Cuts.gbr
+      My_Proto_Board.drl
+    My_Proto_Board_DFM.zip
+```
+
+Notes:
+
+- The folder name matches `Board name` exactly.
+- The file stem replaces spaces with underscores.
+- Gerber files are only created when `Generate Gerbers` is checked.
+- The drill file is only created when `Include drill file` is checked.
+- The ZIP archive is only created when `.ZIP archive` is checked.
+
+## User Data And Logging
+
+EZProto stores workspace metadata locally inside its per-user data directory:
+
+- `app_state.json`
+  - default output directory override
+  - theme
+  - last generated board
+  - saved board history
+  - event log
+
+If you already have older `users/*.json` profile data, EZProto migrates the latest active profile details into `app_state.json` automatically.
+
+You can override the storage location for development or portable installs by setting `EZPROTO_DATA_DIR` before launching EZProto.
+
+Example:
+
+```powershell
+$env:EZPROTO_DATA_DIR = "D:\EZProtoData"
+ezproto
+```
+
+Board history is only updated after a successful KiCad PCB write.
+
+If the same board name is generated again, its saved metadata entry is overwritten with the latest details.
+
+## Development Commands
+
+Run the test suite:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Quick syntax/compile check:
+
+```powershell
+python -m compileall src tests
+```
+
+## Current Scope
+
+- Dual launch modes: terminal UI and browser-served UI
+- Protoboard PCB generation
+- Simple Gerber, drill, and ZIP export
+- User profiles and app state persistence
+- Theme selection
+- Board preview (ASCII)
+
+Planned / in progress:
+
+- 3D export workflow
+- More advanced fabrication output and board features

@@ -14,6 +14,9 @@ DEFAULT_WEB_PORT = 8000
 def build_web_command() -> str:
     """Build the command textual-serve uses to launch the app subprocess."""
 
+    if getattr(sys, "frozen", False):
+        return subprocess.list2cmdline([sys.executable])
+
     return subprocess.list2cmdline([sys.executable, "-m", "ezproto"])
 
 

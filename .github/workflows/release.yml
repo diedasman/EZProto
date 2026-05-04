@@ -117,9 +117,9 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ezproto-v${{ steps.version.outputs.version }}-${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.version }}
           target_commitish: main
-          name: EZProto v${{ steps.version.outputs.version }} build ${{ github.run_number }}
+          name: EZProto v${{ steps.version.outputs.version }}
           body: |
             Automated release from the main branch.
 
